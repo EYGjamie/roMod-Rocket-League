@@ -1,12 +1,11 @@
 //go:build windows
 
-package main
+package game
 
 import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 	"unsafe"
@@ -15,11 +14,9 @@ import (
 )
 
 var (
-	user32             = windows.NewLazySystemDLL("user32.dll")
-	procSendInput      = user32.NewProc("SendInput")
-	procMessageBeep    = user32.NewProc("MessageBeep")
-	procRegisterHotKey = user32.NewProc("RegisterHotKey")
-	procGetMessage     = user32.NewProc("GetMessageW")
+	user32          = windows.NewLazySystemDLL("user32.dll")
+	procSendInput   = user32.NewProc("SendInput")
+	procMessageBeep = user32.NewProc("MessageBeep")
 )
 
 const (
@@ -28,8 +25,6 @@ const (
 	keyeventfScancode = 0x0008
 	scanBackspace     = 0x0E
 	mbIconExclamation = 0x30
-	modNoRepeat       = 0x4000
-	wmHotkey          = 0x0312
 )
 
 // keyboardInput mirrors INPUT holding a KEYBDINPUT on 64-bit Windows.
@@ -114,48 +109,9 @@ func beep() {
 	procMessageBeep.Call(mbIconExclamation)
 }
 
-type winMsg struct {
-	hwnd    uintptr
-	message uint32
-	wParam  uintptr
-	lParam  uintptr
-	time    uint32
-	pt      struct{ x, y int32 }
-	private uint32
-}
-
-// startHotkey registers a system-wide hotkey and calls pressed whenever it
-// is hit, also while a fullscreen game has focus.
-func startHotkey(hk hotkey, pressed func()) error {
-	errc := make(chan error, 1)
-	go func() {
-		// WM_HOTKEY goes to the registering thread's message queue.
-		runtime.LockOSThread()
-		if r, _, err := procRegisterHotKey.Call(0, 1, uintptr(hk.mods|modNoRepeat), uintptr(hk.vk)); r == 0 {
-			errc <- err
-			return
-		}
-		errc <- nil
-		var msg winMsg
-		for {
-			if r, _, _ := procGetMessage.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0); int32(r) <= 0 {
-				return
-			}
-			if msg.message == wmHotkey {
-				go pressed()
-			}
-		}
-	}()
-	return <-errc
-}
-
-func openBrowser(url string) error {
-	return windows.ShellExecute(0, windows.StringToUTF16Ptr("open"), windows.StringToUTF16Ptr(url), nil, nil, windows.SW_SHOWNORMAL)
-}
-
-// defaultDemoDirs returns the replay folders of the Steam and Epic versions
+// DefaultDemoDirs returns the replay folders of the Steam and Epic versions
 // below the (possibly OneDrive-redirected) Documents folder.
-func defaultDemoDirs() ([]string, error) {
+func DefaultDemoDirs() ([]string, error) {
 	docs, err := windows.KnownFolderPath(windows.FOLDERID_Documents, windows.KF_FLAG_DEFAULT)
 	if err != nil {
 		return nil, err

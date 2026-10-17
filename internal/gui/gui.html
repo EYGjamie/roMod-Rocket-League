@@ -20,6 +20,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; font: 14px/1.45 system-ui, "Segoe UI", -apple-system, sans-serif; background: var(--bg); color: var(--text); }
   header { background: var(--panel); border-bottom: 1px solid var(--line); }
   header > div, main, footer > div { max-width: 1100px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
@@ -39,6 +40,8 @@
     border-radius: 6px; padding: 6px 8px; min-width: 240px; max-width: 100%;
   }
   #filter { flex: 1 1 320px; max-width: 480px; }
+  #path { flex: 1 1 300px; }
+  .level { display: flex; gap: 12px; align-items: center; max-width: 100%; }
   input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
   button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 14px; cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
@@ -65,6 +68,7 @@
   @media (max-width: 720px) {
     header > div, main, footer > div { padding-left: 16px; padding-right: 16px; }
     .hide-sm { display: none; }
+    .level { width: 100%; }
     select, input[type=text], input[type=search] { min-width: 0; width: 100%; }
   }
 </style>
@@ -73,7 +77,7 @@
 <header><div class="row spread">
   <div>
     <h1>Replays gruppieren</h1>
-    <div class="muted">Gruppe wählen oder neu anlegen, Replays anhaken, verschieben.</div>
+    <div class="muted">Gruppe oder Untergruppe wählen oder neu anlegen, Replays anhaken, verschieben.</div>
   </div>
   <button id="close" class="close" hidden aria-label="Overlay schließen" title="Schließen (Esc)">✕</button>
 </div></header>
@@ -82,11 +86,11 @@
   <section class="panel">
     <div class="row">
       <label for="group">Gruppe</label>
-      <select id="group"><option>Lade …</option></select>
-      <span id="new-group" class="row" hidden>
-        <input id="group-name" type="text" maxlength="100" placeholder="Name der neuen Gruppe" aria-label="Name der neuen Gruppe">
-        <label><input id="clusters" type="checkbox"> Teams mit Wechselspielern</label>
-      </span>
+      <span id="path" class="row"><select disabled><option>Lade …</option></select></span>
+    </div>
+    <div id="new-group" class="row" style="margin-top: 12px" hidden>
+      <input id="group-name" type="text" maxlength="100" placeholder="Name der neuen Gruppe" aria-label="Name der neuen Gruppe">
+      <label><input id="clusters" type="checkbox"> Teams mit Wechselspielern</label>
     </div>
   </section>
 
@@ -119,6 +123,11 @@ const token = new URLSearchParams(location.search).get('k') || '';
 const $ = id => document.getElementById(id);
 const NEW = '__new';
 const state = { replays: [], next: '', selected: new Set(), busy: false };
+// One dropdown per level: the top-level groups, then the subgroups of the
+// group chosen above it. A subgroup dropdown's value is a group id, NEW, or
+// '' for "directly into the parent".
+const path = [];
+let pathSeq = 0; // drops answers that arrive after the choice changed again
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { 'X-Token': token, 'Content-Type': 'application/json' } });
@@ -188,21 +197,99 @@ function row(r) {
   return tr;
 }
 
-function update() {
-  const n = state.selected.size;
-  const isNew = $('group').value === NEW;
-  $('new-group').hidden = !isNew;
-  $('selected').textContent = `${n} ausgewählt`;
-  $('assign').disabled = state.busy || n === 0 || !$('group').value || (isNew && !$('group-name').value.trim());
+// target says where the selected replays go: { group } for an existing
+// group, { parent } for a new group below parent (null = top level).
+function target() {
+  const lv = path[path.length - 1];
+  if (!lv) return null;
+  const v = lv.sel.value;
+  if (v === NEW) return { parent: lv.parent };
+  if (!v) return lv.parent ? { group: lv.parent } : null;
+  return { group: lv.groups.find(g => g.id === v) };
 }
 
-async function loadGroups(selectId) {
-  const groups = await api('/api/groups');
-  const sel = $('group');
-  sel.replaceChildren(el('option', { value: NEW }, '+ Neue Gruppe …'),
+function update() {
+  const n = state.selected.size;
+  const t = target();
+  const creating = !!t && !t.group;
+  $('new-group').hidden = !creating;
+  const label = t && t.parent ? `Name der neuen Untergruppe in „${t.parent.name}“` : 'Name der neuen Gruppe';
+  $('group-name').placeholder = label;
+  $('group-name').setAttribute('aria-label', label);
+  $('selected').textContent = `${n} ausgewählt`;
+  $('assign').textContent = !t ? 'In Gruppe verschieben'
+    : t.group ? `In „${t.group.name}“ verschieben`
+    : t.parent ? 'In neue Untergruppe verschieben' : 'In neue Gruppe verschieben';
+  $('assign').disabled = state.busy || n === 0 || !t || (creating && !$('group-name').value.trim());
+  for (const lv of path) lv.sel.disabled = state.busy;
+}
+
+const fetchGroups = parent => api('/api/groups' + (parent ? '?parent=' + encodeURIComponent(parent.id) : ''));
+
+// addLevel appends a dropdown with groups, or with the subgroups of parent.
+function addLevel(parent, groups, value) {
+  const i = path.length;
+  const sel = el('select', parent ? { 'aria-label': `Untergruppe von ${parent.name}` } : { id: 'group' },
+    parent ? el('option', { value: '' }, `direkt in „${parent.name}“`) : null,
+    el('option', { value: NEW }, parent ? '+ Neue Untergruppe …' : '+ Neue Gruppe …'),
     ...groups.map(g => el('option', { value: g.id }, `${g.name} (${g.direct_replays})`)));
-  sel.value = selectId || NEW;
+  sel.value = value;
+  sel.addEventListener('change', () => choose(i, sel.value));
+  const box = el('span', { class: 'level' }, parent ? el('span', { class: 'muted', 'aria-hidden': 'true' }, '›') : null, sel);
+  path.push({ parent, groups, sel, box });
+  $('path').append(box);
+}
+
+// cutPath removes all dropdowns after the first n.
+function cutPath(n) {
+  for (const lv of path.splice(n)) lv.box.remove();
+}
+
+// choose reacts to a dropdown change: it drops the levels below and, for a
+// group, adds a dropdown with its subgroups.
+async function choose(i, value) {
+  cutPath(i + 1);
+  const seq = ++pathSeq;
   update();
+  if (value === NEW) $('group-name').focus();
+  if (!value || value === NEW) return;
+  const parent = path[i].groups.find(g => g.id === value);
+  try {
+    const groups = await fetchGroups(parent);
+    if (seq === pathSeq) addLevel(parent, groups, '');
+  } catch (e) {
+    setStatus(e.message, 'err');
+  }
+  update();
+}
+
+async function loadPath() {
+  const groups = await fetchGroups(null);
+  cutPath(0);
+  $('path').replaceChildren();
+  addLevel(null, groups, NEW);
+  update();
+}
+
+// reloadPath fetches every level again for fresh replay counts and keeps the
+// choice; created, a group just made in the last level, gets chosen there.
+async function reloadPath(created) {
+  const values = path.map(lv => lv.sel.value);
+  if (created) values[values.length - 1] = created.id;
+  const seq = ++pathSeq;
+  const levels = [];
+  let parent = null;
+  for (let value of values) {
+    const groups = await fetchGroups(parent);
+    if (value && value !== NEW && !groups.some(g => g.id === value)) value = parent ? '' : NEW; // deleted meanwhile
+    levels.push([parent, groups, value]);
+    parent = groups.find(g => g.id === value);
+    if (!parent) break;
+  }
+  if (parent) levels.push([parent, await fetchGroups(parent), '']);
+  if (seq !== pathSeq) return;
+  cutPath(0);
+  for (const lv of levels) addLevel(...lv);
 }
 
 async function loadReplays(more) {
@@ -221,39 +308,39 @@ async function loadReplays(more) {
 
 async function assign() {
   const ids = [...state.selected];
+  const t = target();
   state.busy = true;
   update();
-  let groupId = $('group').value;
+  let group = t.group, created = null;
   try {
-    let groupName = $('group').selectedOptions[0].textContent.replace(/ \(\d+\)$/, '');
-    if (groupId === NEW) {
-      groupName = $('group-name').value.trim();
-      setStatus(`Lege Gruppe „${groupName}“ an …`);
-      groupId = (await api('/api/groups', { method: 'POST', body: JSON.stringify({ name: groupName, clusters: $('clusters').checked }) })).id;
+    if (!group) {
+      const name = $('group-name').value.trim();
+      setStatus(`Lege ${t.parent ? 'Untergruppe' : 'Gruppe'} „${name}“ an …`);
+      const body = { name, parent: t.parent ? t.parent.id : '', clusters: $('clusters').checked };
+      group = created = { id: (await api('/api/groups', { method: 'POST', body: JSON.stringify(body) })).id, name };
       $('group-name').value = '';
     }
     setStatus(`Verschiebe ${ids.length} Replays …`);
-    const res = await api('/api/assign', { method: 'POST', body: JSON.stringify({ group: groupId, replays: ids }) });
+    const res = await api('/api/assign', { method: 'POST', body: JSON.stringify({ group: group.id, replays: ids }) });
     const failed = new Set(res.failed.map(f => f.id));
     for (const r of state.replays) {
-      if (state.selected.has(r.id) && !failed.has(r.id)) r.groups = [{ id: groupId, name: groupName }];
+      if (state.selected.has(r.id) && !failed.has(r.id)) r.groups = [{ id: group.id, name: group.name }];
     }
     state.selected = failed;
-    const link = el('a', { href: 'https://ballchasing.com/group/' + encodeURIComponent(groupId), target: '_blank', rel: 'noopener noreferrer' }, 'Gruppe öffnen');
+    const link = el('a', { href: 'https://ballchasing.com/group/' + encodeURIComponent(group.id), target: '_blank', rel: 'noopener noreferrer' }, 'Gruppe öffnen');
     $('status').replaceChildren(`${res.assigned} verschoben`,
       failed.size ? `, ${failed.size} fehlgeschlagen (${res.failed[0].error})` : '', '. ', link);
     $('status').className = failed.size ? 'err' : 'ok';
   } catch (e) {
     setStatus(e.message, 'err');
   } finally {
-    // refresh counts; keeps a just-created group selected even if moving failed
-    if (groupId !== NEW) await loadGroups(groupId).catch(() => {});
+    // refresh counts; keeps a just-created group chosen even if moving failed
+    if (group) await reloadPath(created).catch(() => {});
     state.busy = false;
     render();
   }
 }
 
-$('group').addEventListener('change', update);
 $('group-name').addEventListener('input', update);
 $('filter').addEventListener('input', render);
 $('more').addEventListener('click', () => loadReplays(true));
@@ -274,7 +361,7 @@ if (typeof window.closeOverlay === 'function') {
   });
 }
 
-loadGroups().catch(e => setStatus(e.message, 'err'));
+loadPath().catch(e => setStatus(e.message, 'err'));
 loadReplays(false);
 </script>
 </body>

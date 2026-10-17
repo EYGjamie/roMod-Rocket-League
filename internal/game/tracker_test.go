@@ -1,4 +1,4 @@
-package main
+package game
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 type testTracker struct {
-	*tracker
+	*Tracker
 	results chan error // one result per mark call; blocks while empty
 	calls   atomic.Int32
 	reminds int
@@ -16,7 +16,7 @@ type testTracker struct {
 
 func newTestTracker(autoMark bool) *testTracker {
 	tt := &testTracker{results: make(chan error, 10)}
-	tt.tracker = &tracker{
+	tt.Tracker = &Tracker{
 		onlineOnly: true,
 		autoMark:   autoMark,
 		delay:      func() time.Duration { return 0 },
@@ -36,7 +36,7 @@ func newTestTracker(autoMark bool) *testTracker {
 }
 
 func (tt *testTracker) send(name, guid string) {
-	tt.handle(Event{Name: name, MatchGuid: guid})
+	tt.Handle(Event{Name: name, MatchGuid: guid})
 }
 
 func waitFor(t *testing.T, cond func() bool) {

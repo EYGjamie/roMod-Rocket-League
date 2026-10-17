@@ -1,4 +1,6 @@
-package main
+// Package game talks to Rocket League: it reads the Stats API, follows
+// matches and holds the save-replay key once per match.
+package game
 
 import (
 	"context"
@@ -63,9 +65,9 @@ func readEvents(r io.Reader, handle func(Event)) error {
 	}
 }
 
-// listenStatsAPI connects to the game's TCP Stats API and reconnects until
+// ListenStatsAPI connects to the game's TCP Stats API and reconnects until
 // ctx is done. handle is only ever called from this goroutine.
-func listenStatsAPI(ctx context.Context, addr string, handle func(Event)) {
+func ListenStatsAPI(ctx context.Context, addr string, handle func(Event)) {
 	var d net.Dialer
 	waiting := false
 	for {

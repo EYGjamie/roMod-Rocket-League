@@ -1,4 +1,5 @@
-package main
+// Package hotkey parses key combinations and registers them system-wide.
+package hotkey
 
 import (
 	"fmt"
@@ -14,15 +15,15 @@ const (
 	modWin   = 0x8
 )
 
-type hotkey struct {
+type Hotkey struct {
 	mods uint32
 	vk   uint32
 }
 
-// parseHotkey reads combinations like "Ctrl+Alt+B" or "Strg+Shift+F9".
+// Parse reads combinations like "Ctrl+Alt+B" or "Strg+Shift+F9".
 // The key is a letter, a digit or F1–F24; an empty string means no hotkey.
-func parseHotkey(s string) (hotkey, error) {
-	var hk hotkey
+func Parse(s string) (Hotkey, error) {
+	var hk Hotkey
 	if strings.TrimSpace(s) == "" {
 		return hk, nil
 	}

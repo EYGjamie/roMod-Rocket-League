@@ -29,3 +29,5 @@ dist/
 config.json
 uploaded.json
 uploaded.json.tmp
+*.log
+*.log.old

@@ -1,4 +1,6 @@
-package main
+// Package gui serves the page for sorting replays into ballchasing groups
+// and shows it in an overlay window.
+package gui
 
 import (
 	"context"
@@ -13,31 +15,33 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
 )
 
 //go:embed gui.html
 var guiHTML []byte
 
-// gui serves the local page for sorting replays into ballchasing groups.
+// Server serves the local page for sorting replays into ballchasing groups.
 // It only answers requests addressed to its own 127.0.0.1 address that carry
 // the per-run token, so other websites in the browser cannot use it.
-type gui struct {
-	bc    *ballchasing
+type Server struct {
+	bc    *ballchasing.Client
 	token string
 	addr  string        // host:port the page is served on
 	pace  time.Duration // pause between replay updates (rate limit 2/s)
 	retry time.Duration // wait after hitting the rate limit
 }
 
-func newGUI(bc *ballchasing) *gui {
+func NewServer(bc *ballchasing.Client) *Server {
 	b := make([]byte, 16)
 	rand.Read(b)
-	return &gui{bc: bc, token: hex.EncodeToString(b), pace: 600 * time.Millisecond, retry: 2 * time.Second}
+	return &Server{bc: bc, token: hex.EncodeToString(b), pace: 600 * time.Millisecond, retry: 2 * time.Second}
 }
 
-// start listens on a free local port until ctx is done and returns the URL
+// Start listens on a free local port until ctx is done and returns the URL
 // to open.
-func (g *gui) start(ctx context.Context) (string, error) {
+func (g *Server) Start(ctx context.Context) (string, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", err
@@ -53,7 +57,7 @@ func (g *gui) start(ctx context.Context) (string, error) {
 	return "http://" + g.addr + "/?k=" + g.token, nil
 }
 
-func (g *gui) handler() http.Handler {
+func (g *Server) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", g.index)
 	mux.HandleFunc("GET /api/replays", g.replays)
@@ -63,7 +67,7 @@ func (g *gui) handler() http.Handler {
 	return g.guard(mux)
 }
 
-func (g *gui) guard(next http.Handler) http.Handler {
+func (g *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != g.addr {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -87,13 +91,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeErr(w http.ResponseWriter, err error) {
 	status := http.StatusBadGateway
-	if errors.Is(err, errBadToken) {
+	if errors.Is(err, ballchasing.ErrBadToken) {
 		status = http.StatusUnauthorized
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-func (g *gui) index(w http.ResponseWriter, r *http.Request) {
+func (g *Server) index(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-store")
@@ -102,40 +106,46 @@ func (g *gui) index(w http.ResponseWriter, r *http.Request) {
 	w.Write(guiHTML)
 }
 
-func (g *gui) replays(w http.ResponseWriter, r *http.Request) {
-	page, err := g.bc.listReplays(r.Context(), r.URL.Query().Get("next"))
+func (g *Server) replays(w http.ResponseWriter, r *http.Request) {
+	page, err := g.bc.ListReplays(r.Context(), r.URL.Query().Get("next"))
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	if page.List == nil {
-		page.List = []replay{}
+		page.List = []ballchasing.Replay{}
 	}
 	writeJSON(w, http.StatusOK, page)
 }
 
-func (g *gui) groups(w http.ResponseWriter, r *http.Request) {
-	groups, err := g.bc.listGroups(r.Context())
+// groups lists the account's groups, or the subgroups of ?parent=.
+func (g *Server) groups(w http.ResponseWriter, r *http.Request) {
+	var groups []ballchasing.Group
+	err := g.retryLimited(r.Context(), func() (err error) {
+		groups, err = g.bc.ListGroups(r.Context(), r.URL.Query().Get("parent"))
+		return err
+	})
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
 	if groups == nil {
-		groups = []group{}
+		groups = []ballchasing.Group{}
 	}
 	writeJSON(w, http.StatusOK, groups)
 }
 
-func (g *gui) createGroup(w http.ResponseWriter, r *http.Request) {
+func (g *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name     string `json:"name"`
+		Parent   string `json:"parent"` // empty for a top-level group
 		Clusters bool   `json:"clusters"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || strings.TrimSpace(in.Name) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Gruppenname fehlt"})
 		return
 	}
-	id, err := g.bc.createGroup(r.Context(), strings.TrimSpace(in.Name), in.Clusters)
+	id, err := g.bc.CreateGroup(r.Context(), strings.TrimSpace(in.Name), in.Parent, in.Clusters)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -151,7 +161,7 @@ type assignFailure struct {
 
 // assign moves the replays into the group one by one, paced to stay below
 // the API rate limit.
-func (g *gui) assign(w http.ResponseWriter, r *http.Request) {
+func (g *Server) assign(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Group   string   `json:"group"`
 		Replays []string `json:"replays"`
@@ -166,10 +176,7 @@ func (g *gui) assign(w http.ResponseWriter, r *http.Request) {
 		if i > 0 && sleepCtx(ctx, g.pace) != nil {
 			return
 		}
-		err := g.bc.setGroup(ctx, id, in.Group)
-		if hasStatus(err, http.StatusTooManyRequests) && sleepCtx(ctx, g.retry) == nil {
-			err = g.bc.setGroup(ctx, id, in.Group)
-		}
+		err := g.retryLimited(ctx, func() error { return g.bc.SetGroup(ctx, id, in.Group) })
 		if err != nil {
 			failed = append(failed, assignFailure{id, err.Error()})
 		}
@@ -177,6 +184,16 @@ func (g *gui) assign(w http.ResponseWriter, r *http.Request) {
 	n := len(in.Replays) - len(failed)
 	log.Printf("%d Replays in Gruppe https://ballchasing.com/group/%s verschoben, %d fehlgeschlagen", n, in.Group, len(failed))
 	writeJSON(w, http.StatusOK, map[string]any{"assigned": n, "failed": failed})
+}
+
+// retryLimited calls f once more after a pause if ballchasing answered with
+// its rate limit.
+func (g *Server) retryLimited(ctx context.Context, f func() error) error {
+	err := f()
+	if ballchasing.HasStatus(err, http.StatusTooManyRequests) && sleepCtx(ctx, g.retry) == nil {
+		err = f()
+	}
+	return err
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

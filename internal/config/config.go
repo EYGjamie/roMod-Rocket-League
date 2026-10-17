@@ -1,4 +1,5 @@
-package main
+// Package config reads and creates config.json.
+package config
 
 import (
 	"encoding/json"
@@ -6,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
 )
 
 type Config struct {
@@ -32,9 +35,9 @@ func defaultConfig() Config {
 	}
 }
 
-// loadConfig reads path on top of the defaults. BALLCHASING_TOKEN overrides
+// Load reads path on top of the defaults. BALLCHASING_TOKEN overrides
 // the token from the file.
-func loadConfig(path string) (Config, error) {
+func Load(path string) (Config, error) {
 	cfg := defaultConfig()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -58,15 +61,15 @@ func (c Config) validate() error {
 	case c.MarkHoldMs < 100:
 		return fmt.Errorf("mark_hold_ms %d zu klein (mindestens 100)", c.MarkHoldMs)
 	}
-	if _, err := parseHotkey(c.GUIHotkey); err != nil {
+	if _, err := hotkey.Parse(c.GUIHotkey); err != nil {
 		return fmt.Errorf("gui_hotkey: %w", err)
 	}
 	return nil
 }
 
-// writeDefaultConfig creates a config file with an empty token for the user
+// WriteDefault creates a config file with an empty token for the user
 // to fill in.
-func writeDefaultConfig(path string) error {
+func WriteDefault(path string) error {
 	data, err := json.MarshalIndent(defaultConfig(), "", "  ")
 	if err != nil {
 		return err

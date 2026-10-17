@@ -1,29 +1,28 @@
-package main
+// Package ballchasingtest provides a fake ballchasing API for tests.
+package ballchasingtest
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
+
+	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
 )
 
-// fakeAPI imitates the parts of the ballchasing API this tool uses.
-type fakeAPI struct {
+// Server imitates the parts of the ballchasing API this tool uses.
+type Server struct {
 	*httptest.Server
 	mu      sync.Mutex
 	patches map[string][]string // replay ID -> group IDs it was patched to
 }
 
-func fakeBallchasing(t *testing.T) *fakeAPI {
+func New(t *testing.T) *Server {
 	t.Helper()
-	f := &fakeAPI{patches: map[string][]string{}}
+	f := &Server{patches: map[string][]string{}}
 	mux := http.NewServeMux()
 	reply := func(w http.ResponseWriter, status int, body string) {
 		w.WriteHeader(status)
@@ -75,16 +74,33 @@ func fakeBallchasing(t *testing.T) *fakeAPI {
 		if r.URL.Query().Get("creator") != "me" {
 			t.Errorf("groups query %s without creator=me", r.URL.RawQuery)
 		}
-		reply(w, http.StatusOK, `{"list":[{"id":"g1","name":"Liga","created":"2026-10-01T10:00:00Z","direct_replays":3}]}`)
+		// g1 has the subgroup g1-s1, which has none
+		switch r.URL.Query().Get("group") {
+		case "":
+			reply(w, http.StatusOK, `{"list":[{"id":"g1","name":"Liga","created":"2026-10-01T10:00:00Z","direct_replays":3}]}`)
+		case "g1":
+			reply(w, http.StatusOK, `{"list":[{"id":"g1-s1","name":"Spieltag 1","created":"2026-10-08T10:00:00Z","direct_replays":2}]}`)
+		default:
+			reply(w, http.StatusOK, `{"list":[]}`)
+		}
 	})
 	mux.HandleFunc("POST /api/groups", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]string
 		json.NewDecoder(r.Body).Decode(&in)
-		if in["name"] == "" || in["player_identification"] != "by-id" || in["team_identification"] != "by-player-clusters" {
+		parent, hasParent := in["parent"]
+		if in["name"] == "" || in["player_identification"] != "by-id" || in["team_identification"] != "by-player-clusters" ||
+			hasParent && parent == "" {
 			reply(w, http.StatusBadRequest, `{"error":"bad group"}`)
 			return
 		}
-		reply(w, http.StatusCreated, `{"id":"neu-1","link":"https://ballchasing.com/api/groups/neu-1"}`)
+		switch parent {
+		case "":
+			reply(w, http.StatusCreated, `{"id":"neu-1","link":"https://ballchasing.com/api/groups/neu-1"}`)
+		case "g1":
+			reply(w, http.StatusCreated, `{"id":"unter-1","link":"https://ballchasing.com/api/groups/unter-1"}`)
+		default:
+			reply(w, http.StatusBadRequest, `{"error":"parent group not found"}`)
+		}
 	})
 	mux.HandleFunc("PATCH /api/replays/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]string
@@ -115,92 +131,14 @@ func fakeBallchasing(t *testing.T) *fakeAPI {
 	return f
 }
 
-func (f *fakeAPI) patched(id string) []string {
+// Patched returns the group IDs the replay was moved to, in order.
+func (f *Server) Patched(id string) []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.patches[id])
 }
 
-func (f *fakeAPI) client() *ballchasing {
-	return &ballchasing{baseURL: f.URL, token: "tok", visibility: "private", group: "grp", client: f.Client()}
-}
-
-func TestBallchasingUpload(t *testing.T) {
-	bc := fakeBallchasing(t).client()
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	tests := []struct {
-		file          string
-		wantID        string
-		wantDuplicate bool
-		wantErr       error
-	}{
-		{file: "new.replay", wantID: "abc"},
-		{file: "dup.replay", wantID: "old", wantDuplicate: true},
-		{file: "bad.replay", wantErr: errRejected},
-		{file: "busy.replay", wantErr: errors.New("any")},
-	}
-	for _, tc := range tests {
-		t.Run(tc.file, func(t *testing.T) {
-			path := filepath.Join(dir, tc.file)
-			if err := os.WriteFile(path, []byte("replay-bytes"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			id, dup, err := bc.upload(ctx, path)
-			switch {
-			case tc.wantErr == nil && err != nil:
-				t.Fatalf("upload() error = %v", err)
-			case tc.wantErr != nil && err == nil:
-				t.Fatal("upload() error = nil, want error")
-			case errors.Is(tc.wantErr, errRejected) && !errors.Is(err, errRejected):
-				t.Fatalf("upload() error = %v, want errRejected", err)
-			case !errors.Is(tc.wantErr, errRejected) && errors.Is(err, errRejected):
-				t.Fatalf("upload() error = %v, must stay retryable", err)
-			}
-			if id != tc.wantID || dup != tc.wantDuplicate {
-				t.Errorf("upload() = %q, %v, want %q, %v", id, dup, tc.wantID, tc.wantDuplicate)
-			}
-		})
-	}
-}
-
-func TestBallchasingPing(t *testing.T) {
-	bc := fakeBallchasing(t).client()
-	ctx := context.Background()
-
-	if name, err := bc.ping(ctx); err != nil || name != "Jamie" {
-		t.Errorf("ping() = %q, %v, want Jamie, nil", name, err)
-	}
-
-	bc.token = "falsch"
-	if _, err := bc.ping(ctx); !errors.Is(err, errBadToken) {
-		t.Errorf("ping() error = %v, want errBadToken", err)
-	}
-}
-
-func TestBallchasingListReplays(t *testing.T) {
-	bc := fakeBallchasing(t).client()
-	ctx := context.Background()
-
-	page, err := bc.listReplays(ctx, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(page.List) != 1 || page.Next == "" {
-		t.Fatalf("first page = %+v, want one replay and a next link", page)
-	}
-	r := page.List[0]
-	if r.Blue.Goals != 3 || r.Orange.Goals != 1 || r.Blue.Players[0].Name != "Jamie" || r.Groups[0].Name != "Liga" {
-		t.Errorf("replay decoded as %+v", r)
-	}
-
-	page, err = bc.listReplays(ctx, page.Next)
-	if err != nil || len(page.List) != 1 || page.List[0].ID != "r2" || page.Next != "" {
-		t.Errorf("second page = %+v, %v", page, err)
-	}
-
-	if _, err := bc.listReplays(ctx, "https://example.com/api/replays?x=1"); err == nil {
-		t.Error("listReplays() followed a foreign next link")
-	}
+// API returns a client for this server with the token it accepts.
+func (f *Server) API() *ballchasing.Client {
+	return &ballchasing.Client{BaseURL: f.URL, Token: "tok", Visibility: "private", Group: "grp", HTTPClient: f.Client()}
 }

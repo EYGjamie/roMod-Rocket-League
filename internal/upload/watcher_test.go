@@ -1,4 +1,4 @@
-package main
+package upload
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -21,19 +23,19 @@ func TestWatcherUploadsSettledNewReplays(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	statePath := filepath.Join(t.TempDir(), "uploaded.json")
-	state, existed, err := loadState(statePath)
+	state, existed, err := LoadState(statePath)
 	if err != nil || existed {
-		t.Fatalf("loadState() = %v, %v", existed, err)
+		t.Fatalf("LoadState() = %v, %v", existed, err)
 	}
 	writeFile(t, filepath.Join(dir, "old.replay"), "x")
 
 	var uploaded []string
-	w := newWatcher([]string{dir, filepath.Join(dir, "missing")}, state, func(_ context.Context, path string) (string, bool, error) {
+	w := NewWatcher([]string{dir, filepath.Join(dir, "missing")}, state, func(_ context.Context, path string) (string, bool, error) {
 		uploaded = append(uploaded, filepath.Base(path))
 		return "id-" + filepath.Base(path), false, nil
 	})
-	if n, err := w.seed(); n != 1 || err != nil {
-		t.Fatalf("seed() = %d, %v, want 1, nil", n, err)
+	if n, err := w.Seed(); n != 1 || err != nil {
+		t.Fatalf("Seed() = %d, %v, want 1, nil", n, err)
 	}
 
 	newPath := filepath.Join(dir, "new.replay")
@@ -51,9 +53,9 @@ func TestWatcherUploadsSettledNewReplays(t *testing.T) {
 		t.Fatalf("uploaded = %v, want [new.replay]", uploaded)
 	}
 
-	saved, existed, err := loadState(statePath)
+	saved, existed, err := LoadState(statePath)
 	if err != nil || !existed {
-		t.Fatalf("loadState() = %v, %v", existed, err)
+		t.Fatalf("LoadState() = %v, %v", existed, err)
 	}
 	if saved.Uploaded["new.replay"] != "id-new.replay" {
 		t.Errorf("saved ID = %q, want id-new.replay", saved.Uploaded["new.replay"])
@@ -66,7 +68,7 @@ func TestWatcherUploadsSettledNewReplays(t *testing.T) {
 func TestWatcherBacksOffAndSkipsRejected(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	state, _, err := loadState(filepath.Join(t.TempDir(), "uploaded.json"))
+	state, _, err := LoadState(filepath.Join(t.TempDir(), "uploaded.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +76,11 @@ func TestWatcherBacksOffAndSkipsRejected(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "b.replay"), "b")
 
 	calls := map[string]int{}
-	w := newWatcher([]string{dir}, state, func(_ context.Context, path string) (string, bool, error) {
+	w := NewWatcher([]string{dir}, state, func(_ context.Context, path string) (string, bool, error) {
 		name := filepath.Base(path)
 		calls[name]++
 		if name == "b.replay" {
-			return "", false, errRejected
+			return "", false, ballchasing.ErrRejected
 		}
 		if calls[name] == 1 {
 			return "", false, errors.New("Netzwerk weg")

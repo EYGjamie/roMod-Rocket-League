@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package gui
 
 import (
 	"log"
@@ -15,15 +15,15 @@ import (
 )
 
 var (
-	procSetWindowLongPtr              = user32.NewProc("SetWindowLongPtrW")
-	procSetWindowPos                  = user32.NewProc("SetWindowPos")
-	procShowWindow                    = user32.NewProc("ShowWindow")
-	procSendMessage                   = user32.NewProc("SendMessageW")
-	procSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
-	procMonitorFromWindow             = user32.NewProc("MonitorFromWindow")
-	procGetMonitorInfo                = user32.NewProc("GetMonitorInfoW")
-	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
-	procDwmSetWindowAttribute         = windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
+	user32                    = windows.NewLazySystemDLL("user32.dll")
+	procSetWindowLongPtr      = user32.NewProc("SetWindowLongPtrW")
+	procSetWindowPos          = user32.NewProc("SetWindowPos")
+	procShowWindow            = user32.NewProc("ShowWindow")
+	procSendMessage           = user32.NewProc("SendMessageW")
+	procSetForegroundWindow   = user32.NewProc("SetForegroundWindow")
+	procMonitorFromWindow     = user32.NewProc("MonitorFromWindow")
+	procGetMonitorInfo        = user32.NewProc("GetMonitorInfoW")
+	procDwmSetWindowAttribute = windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
 )
 
 const (
@@ -38,10 +38,9 @@ const (
 	dwmwcpRound                 = 2
 
 	// negative handles and indices as two's complement
-	hwndTopmost              = ^uintptr(0)  // -1
-	gwlStyle                 = ^uintptr(15) // -16
-	gwlExStyle               = ^uintptr(19) // -20
-	dpiAwarenessPerMonitorV2 = ^uintptr(3)  // -4
+	hwndTopmost = ^uintptr(0)  // -1
+	gwlStyle    = ^uintptr(15) // -16
+	gwlExStyle  = ^uintptr(19) // -20
 )
 
 type rect struct{ left, top, right, bottom int32 }
@@ -53,11 +52,9 @@ type monitorInfo struct {
 	flags   uint32
 }
 
-var dpiOnce sync.Once
-
-// overlay is a frameless, always-on-top window showing the GUI page. It is
+// Overlay is a frameless, always-on-top window showing the GUI page. It is
 // created on first use and afterwards only hidden and shown again.
-type overlay struct {
+type Overlay struct {
 	url      string
 	mu       sync.Mutex
 	view     webview2.WebView
@@ -65,13 +62,13 @@ type overlay struct {
 	creating bool
 }
 
-func newOverlay(url string) *overlay {
-	return &overlay{url: url}
+func NewOverlay(url string) *Overlay {
+	return &Overlay{url: url}
 }
 
-// toggle opens the overlay, brings it to the front, or hides it when it
+// Toggle opens the overlay, brings it to the front, or hides it when it
 // already is in front.
-func (o *overlay) toggle() {
+func (o *Overlay) Toggle() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch {
@@ -93,10 +90,9 @@ func (o *overlay) toggle() {
 
 // run creates the window and runs its message loop on a dedicated thread,
 // as WebView2 requires.
-func (o *overlay) run() {
+func (o *Overlay) run() {
 	runtime.LockOSThread()
 	windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED)
-	dpiOnce.Do(func() { procSetProcessDpiAwarenessContext.Call(dpiAwarenessPerMonitorV2) })
 
 	_, _, w, h := overlayBounds()
 	view := webview2.NewWithOptions(webview2.WebViewOptions{
@@ -168,4 +164,8 @@ func webviewDataPath() string {
 		return "" // library default
 	}
 	return filepath.Join(dir, "auto-replay-upload", "WebView2")
+}
+
+func openBrowser(url string) error {
+	return windows.ShellExecute(0, windows.StringToUTF16Ptr("open"), windows.StringToUTF16Ptr(url), nil, nil, windows.SW_SHOWNORMAL)
 }

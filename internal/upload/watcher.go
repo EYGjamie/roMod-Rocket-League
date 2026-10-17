@@ -1,4 +1,5 @@
-package main
+// Package upload watches the replay folders and uploads every new replay once.
+package upload
 
 import (
 	"context"
@@ -11,18 +12,20 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
 )
 
-// uploadState remembers which replay files were handled, so restarts neither
+// State remembers which replay files were handled, so restarts neither
 // upload twice nor miss replays saved while the tool was not running.
-type uploadState struct {
+type State struct {
 	path     string
 	Uploaded map[string]string `json:"uploaded"` // file name -> ballchasing ID ("" = skipped)
 }
 
-// loadState returns the saved state and whether a state file existed.
-func loadState(path string) (*uploadState, bool, error) {
-	s := &uploadState{path: path, Uploaded: map[string]string{}}
+// LoadState returns the saved state and whether a state file existed.
+func LoadState(path string) (*State, bool, error) {
+	s := &State{path: path, Uploaded: map[string]string{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s, false, nil
@@ -39,7 +42,7 @@ func loadState(path string) (*uploadState, bool, error) {
 	return s, true, nil
 }
 
-func (s *uploadState) save() error {
+func (s *State) save() error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -57,21 +60,21 @@ type pendingFile struct {
 	backoff time.Duration
 }
 
-// watcher polls the replay folders and uploads every new .replay file once
+// Watcher polls the replay folders and uploads every new .replay file once
 // its size has stopped changing.
-type watcher struct {
+type Watcher struct {
 	dirs    []string
 	upload  func(ctx context.Context, path string) (id string, duplicate bool, err error)
-	state   *uploadState
+	state   *State
 	now     func() time.Time
 	pending map[string]*pendingFile
 }
 
-func newWatcher(dirs []string, state *uploadState, upload func(context.Context, string) (string, bool, error)) *watcher {
-	return &watcher{dirs: dirs, upload: upload, state: state, now: time.Now, pending: map[string]*pendingFile{}}
+func NewWatcher(dirs []string, state *State, upload func(context.Context, string) (string, bool, error)) *Watcher {
+	return &Watcher{dirs: dirs, upload: upload, state: state, now: time.Now, pending: map[string]*pendingFile{}}
 }
 
-func (w *watcher) replays(dir string) []fs.DirEntry {
+func (w *Watcher) replays(dir string) []fs.DirEntry {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil // e.g. DemosEpic on a Steam install
@@ -85,9 +88,9 @@ func (w *watcher) replays(dir string) []fs.DirEntry {
 	return out
 }
 
-// seed marks all existing replays as handled so the first start does not
+// Seed marks all existing replays as handled so the first start does not
 // upload the whole backlog.
-func (w *watcher) seed() (int, error) {
+func (w *Watcher) Seed() (int, error) {
 	n := 0
 	for _, dir := range w.dirs {
 		for _, e := range w.replays(dir) {
@@ -98,7 +101,7 @@ func (w *watcher) seed() (int, error) {
 	return n, w.state.save()
 }
 
-func (w *watcher) run(ctx context.Context, interval time.Duration) {
+func (w *Watcher) Run(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -111,7 +114,7 @@ func (w *watcher) run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-func (w *watcher) scan(ctx context.Context) {
+func (w *Watcher) scan(ctx context.Context) {
 	for _, dir := range w.dirs {
 		for _, e := range w.replays(dir) {
 			name := e.Name()
@@ -141,7 +144,7 @@ func (w *watcher) scan(ctx context.Context) {
 	}
 }
 
-func (w *watcher) process(ctx context.Context, path, name string, p *pendingFile) {
+func (w *Watcher) process(ctx context.Context, path, name string, p *pendingFile) {
 	id, duplicate, err := w.upload(ctx, path)
 	switch {
 	case err == nil && duplicate:
@@ -150,7 +153,7 @@ func (w *watcher) process(ctx context.Context, path, name string, p *pendingFile
 	case err == nil:
 		log.Printf("%s hochgeladen: https://ballchasing.com/replay/%s", name, id)
 		w.done(path, name, id)
-	case errors.Is(err, errRejected):
+	case errors.Is(err, ballchasing.ErrRejected):
 		log.Printf("%s übersprungen: %v", name, err)
 		w.done(path, name, "")
 	case ctx.Err() != nil:
@@ -161,7 +164,7 @@ func (w *watcher) process(ctx context.Context, path, name string, p *pendingFile
 	}
 }
 
-func (w *watcher) done(path, name, id string) {
+func (w *Watcher) done(path, name, id string) {
 	delete(w.pending, path)
 	w.state.Uploaded[name] = id
 	if err := w.state.save(); err != nil {

@@ -1,19 +1,20 @@
-package main
+package game
 
 import (
 	"context"
 	"errors"
 	"log"
+	"math/rand/v2"
 	"sync/atomic"
 	"time"
 )
 
 var errNotFocused = errors.New("Rocket League ist nicht im Vordergrund")
 
-// tracker follows matches through Stats API events. On the first kickoff of
+// Tracker follows matches through Stats API events. On the first kickoff of
 // a match it marks the replay for saving; if that did not happen by the end
 // of the match it reminds the player to save it by hand.
-type tracker struct {
+type Tracker struct {
 	onlineOnly bool
 	autoMark   bool
 	delay      func() time.Duration // wait after kickoff before marking
@@ -25,6 +26,20 @@ type tracker struct {
 	cur      *match
 }
 
+// NewTracker returns a tracker that holds Backspace for hold, 3–8 seconds
+// after the first kickoff (if autoMark), and beeps when a match ends without
+// a marked replay. onlineOnly ignores offline matches and training.
+func NewTracker(onlineOnly, autoMark bool, hold time.Duration) *Tracker {
+	return &Tracker{
+		onlineOnly: onlineOnly,
+		autoMark:   autoMark,
+		delay:      func() time.Duration { return 3*time.Second + rand.N(5*time.Second) },
+		retry:      3 * time.Second,
+		mark:       func(ctx context.Context) error { return markReplay(ctx, hold) },
+		remind:     beep,
+	}
+}
+
 type match struct {
 	guid   string
 	ended  bool
@@ -32,7 +47,8 @@ type match struct {
 	marked atomic.Bool
 }
 
-func (t *tracker) handle(ev Event) {
+// Handle processes one Stats API event. Calls must not overlap.
+func (t *Tracker) Handle(ev Event) {
 	switch ev.Name {
 	case "ReplayCreated":
 		t.inReplay = true
@@ -49,11 +65,11 @@ func (t *tracker) handle(ev Event) {
 
 // skip reports whether a match should be ignored: saved replays being
 // watched, and offline matches (which have no MatchGuid) if onlineOnly.
-func (t *tracker) skip(guid string) bool {
+func (t *Tracker) skip(guid string) bool {
 	return t.inReplay || (guid == "" && t.onlineOnly)
 }
 
-func (t *tracker) roundStarted(guid string) {
+func (t *Tracker) roundStarted(guid string) {
 	if t.skip(guid) || (t.cur != nil && t.cur.guid == guid) {
 		return
 	}
@@ -66,7 +82,7 @@ func (t *tracker) roundStarted(guid string) {
 	}
 }
 
-func (t *tracker) matchEnded(guid string) {
+func (t *Tracker) matchEnded(guid string) {
 	if t.skip(guid) {
 		return
 	}
@@ -84,13 +100,13 @@ func (t *tracker) matchEnded(guid string) {
 	t.remind()
 }
 
-func (t *tracker) stop() {
+func (t *Tracker) stop() {
 	if t.cur != nil {
 		t.cur.cancel()
 	}
 }
 
-func (t *tracker) markLoop(ctx context.Context, m *match) {
+func (t *Tracker) markLoop(ctx context.Context, m *match) {
 	wait := t.delay()
 	loggedUnfocused := false
 	for {
