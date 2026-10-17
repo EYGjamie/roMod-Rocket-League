@@ -20,11 +20,11 @@ var (
 )
 
 const (
-	inputKeyboard     = 1
-	keyeventfKeyUp    = 0x0002
-	keyeventfScancode = 0x0008
-	scanBackspace     = 0x0E
-	mbIconExclamation = 0x30
+	inputKeyboard        = 1
+	keyeventfExtendedKey = 0x0001
+	keyeventfKeyUp       = 0x0002
+	keyeventfScancode    = 0x0008
+	mbIconExclamation    = 0x30
 )
 
 // keyboardInput mirrors INPUT holding a KEYBDINPUT on 64-bit Windows.
@@ -52,30 +52,61 @@ func sendKey(scan uint16, flags uint32) error {
 	return nil
 }
 
-// markReplay holds Backspace, the game's default "save replay" bind, for
+// markReplay holds the game's "save replay" key (Backspace by default) for
 // hold. It only sends input while Rocket League is the foreground window, so
 // the key never lands in another program.
-func markReplay(ctx context.Context, hold time.Duration) error {
-	if !rocketLeagueFocused() {
-		return errNotFocused
+func markReplay(ctx context.Context, key string, hold time.Duration) error {
+	sc, ok := keyCodes[key]
+	if !ok {
+		return fmt.Errorf("unbekannte Taste %q", key)
 	}
-	if err := sendKey(scanBackspace, 0); err != nil {
+	var flags uint32
+	if sc.extended {
+		flags = keyeventfExtendedKey
+	}
+	if !rocketLeagueFocused() {
+		return ErrNotFocused
+	}
+	if err := sendKey(sc.code, flags); err != nil {
 		return err
 	}
 	select {
 	case <-ctx.Done():
 	case <-time.After(hold):
 	}
-	if err := sendKey(scanBackspace, keyeventfKeyUp); err != nil {
+	if err := sendKey(sc.code, flags|keyeventfKeyUp); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if !rocketLeagueFocused() {
-		return errNotFocused // focus changed mid-hold, try again
+		return ErrNotFocused // focus changed mid-hold, try again
 	}
 	return nil
+}
+
+// RocketLeagueRunning reports whether the game process exists.
+func RocketLeagueRunning() bool {
+	return findProcess(func(e *windows.ProcessEntry32) bool {
+		return strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), "RocketLeague.exe")
+	})
+}
+
+func findProcess(match func(*windows.ProcessEntry32) bool) bool {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(snap)
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if match(&e) {
+			return true
+		}
+	}
+	return false
 }
 
 // rocketLeagueFocused looks up the foreground window's executable through a
@@ -90,19 +121,9 @@ func rocketLeagueFocused() bool {
 	if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid == 0 {
 		return false
 	}
-	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(snap)
-	var e windows.ProcessEntry32
-	e.Size = uint32(unsafe.Sizeof(e))
-	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
-		if e.ProcessID == pid {
-			return strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), "RocketLeague.exe")
-		}
-	}
-	return false
+	return findProcess(func(e *windows.ProcessEntry32) bool {
+		return e.ProcessID == pid && strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), "RocketLeague.exe")
+	})
 }
 
 func beep() {

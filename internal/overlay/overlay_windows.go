@@ -1,12 +1,13 @@
 //go:build windows
 
-package gui
+package overlay
 
 import (
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"unsafe"
 
@@ -60,6 +61,7 @@ type Overlay struct {
 	view     webview2.WebView
 	hwnd     uintptr
 	creating bool
+	route    string // view to open once the window exists
 }
 
 func NewOverlay(url string) *Overlay {
@@ -70,19 +72,36 @@ func NewOverlay(url string) *Overlay {
 // already is in front.
 func (o *Overlay) Toggle() {
 	o.mu.Lock()
+	if o.view != nil && windows.IsWindowVisible(windows.HWND(o.hwnd)) && uintptr(windows.GetForegroundWindow()) == o.hwnd {
+		hwnd := o.hwnd
+		o.view.Dispatch(func() { procShowWindow.Call(hwnd, swHide) })
+		o.mu.Unlock()
+		return
+	}
+	o.mu.Unlock()
+	o.Show("")
+}
+
+// Show opens the overlay in front, at a view of the interface such as
+// "eingang" if route is not empty.
+func (o *Overlay) Show(route string) {
+	o.mu.Lock()
 	defer o.mu.Unlock()
 	switch {
 	case o.creating:
+		if route != "" {
+			o.route = route
+		}
 	case o.view == nil:
-		o.creating = true
+		o.creating, o.route = true, route
 		go o.run()
-	case windows.IsWindowVisible(windows.HWND(o.hwnd)) && uintptr(windows.GetForegroundWindow()) == o.hwnd:
-		hwnd := o.hwnd
-		o.view.Dispatch(func() { procShowWindow.Call(hwnd, swHide) })
 	default:
 		view, hwnd := o.view, o.hwnd
 		view.Dispatch(func() {
-			view.Eval("location.reload()") // fresh replay list
+			if route != "" {
+				view.Eval("location.hash = " + strconv.Quote("#/"+route))
+			}
+			view.Eval("window.onOverlayShown && window.onOverlayShown()")
 			showOverlay(hwnd)
 		})
 	}
@@ -99,7 +118,7 @@ func (o *Overlay) run() {
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
 		WindowOptions: webview2.WindowOptions{
-			Title:  "Replays gruppieren",
+			Title:  "auto-replay-upload",
 			Width:  uint(w),
 			Height: uint(h),
 			Center: true,
@@ -110,7 +129,7 @@ func (o *Overlay) run() {
 		o.creating = false
 		o.mu.Unlock()
 		log.Print("WebView2 ist nicht verfügbar, öffne die Seite im Browser")
-		if err := openBrowser(o.url); err != nil {
+		if err := OpenBrowser(o.url); err != nil {
 			log.Printf("Browser konnte nicht geöffnet werden: %v", err)
 		}
 		return
@@ -123,7 +142,13 @@ func (o *Overlay) run() {
 	corners := uint32(dwmwcpRound) // Windows 11 only, ignored elsewhere
 	procDwmSetWindowAttribute.Call(hwnd, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&corners)), 4)
 	view.Bind("closeOverlay", func() { procShowWindow.Call(hwnd, swHide) })
-	view.Navigate(o.url)
+	o.mu.Lock()
+	url := o.url
+	if o.route != "" {
+		url += "#/" + o.route
+	}
+	o.mu.Unlock()
+	view.Navigate(url)
 	showOverlay(hwnd)
 
 	o.mu.Lock()
@@ -166,6 +191,7 @@ func webviewDataPath() string {
 	return filepath.Join(dir, "auto-replay-upload", "WebView2")
 }
 
-func openBrowser(url string) error {
+// OpenBrowser opens a URL in the default browser.
+func OpenBrowser(url string) error {
 	return windows.ShellExecute(0, windows.StringToUTF16Ptr("open"), windows.StringToUTF16Ptr(url), nil, nil, windows.SW_SHOWNORMAL)
 }

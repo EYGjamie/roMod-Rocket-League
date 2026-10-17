@@ -57,3 +57,6 @@ func Parse(s string) (Hotkey, error) {
 	}
 	return hk, nil
 }
+
+// IsZero reports whether hk is no hotkey at all.
+func (hk Hotkey) IsZero() bool { return hk.vk == 0 }

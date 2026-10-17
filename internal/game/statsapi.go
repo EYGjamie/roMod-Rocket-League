@@ -66,19 +66,28 @@ func readEvents(r io.Reader, handle func(Event)) error {
 }
 
 // ListenStatsAPI connects to the game's TCP Stats API and reconnects until
-// ctx is done. handle is only ever called from this goroutine.
-func ListenStatsAPI(ctx context.Context, addr string, handle func(Event)) {
+// ctx is done. addr is asked before every attempt, so a changed setting
+// applies on the next reconnect. handle is only ever called from this
+// goroutine; connected, if not nil, reports connects and disconnects.
+func ListenStatsAPI(ctx context.Context, addrOf func() string, handle func(Event), connected func(bool)) {
 	var d net.Dialer
 	waiting := false
 	for {
+		addr := addrOf()
 		conn, err := d.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			log.Printf("Mit der Stats API verbunden (%s)", addr)
 			waiting = false
+			if connected != nil {
+				connected(true)
+			}
 			stop := context.AfterFunc(ctx, func() { conn.Close() })
 			err = readEvents(conn, handle)
 			stop()
 			conn.Close()
+			if connected != nil {
+				connected(false)
+			}
 			if ctx.Err() == nil {
 				log.Printf("Verbindung zur Stats API getrennt: %v", err)
 			}

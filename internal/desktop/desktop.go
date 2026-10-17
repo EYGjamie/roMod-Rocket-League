@@ -1,17 +1,20 @@
 // Package desktop runs the tool in the background on Windows: notification
-// area icon, autostart at sign-in, a single running copy and message boxes.
-// Elsewhere these do nothing and the tool runs in the terminal.
+// area icon, autostart at sign-in, a single running copy, message boxes and
+// file operations. Elsewhere most of it does nothing and the tool runs in
+// the terminal.
 package desktop
 
 import "strings"
 
 // Tray is the notification area icon and its menu.
 type Tray struct {
-	Groups     func() // opens the overlay for sorting replays into groups
-	Hotkey     string // shortcut shown next to the groups entry, may be empty
-	ConfigPath string
-	LogPath    string
-	Autostart  []string // command line Windows runs at sign-in
+	Overlay     func() // left click and "Overlay öffnen"
+	Browser     func()
+	Settings    func()
+	TogglePause func()
+	Upload      func() // pick files and upload them
+	OpenFolder  func()
+	Hotkey      string // overlay shortcut shown in the menu, may be empty
 }
 
 // StatusLog is meant as additional log output: the last line written shows

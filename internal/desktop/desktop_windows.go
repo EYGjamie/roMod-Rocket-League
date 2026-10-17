@@ -3,7 +3,10 @@
 package desktop
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"os/exec"
+	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -25,10 +28,13 @@ func SetDPIAware() {
 	procSetProcessDpiAwarenessContext.Call(dpiAwarenessPerMonitorV2)
 }
 
-// SingleInstance reports false if the tool is already running for this user.
-func SingleInstance() bool {
+// SingleInstance reports false if the tool already runs for this user with
+// the same configuration file.
+func SingleInstance(configPath string) bool {
+	sum := sha1.Sum([]byte(strings.ToLower(configPath)))
+	name := `Local\auto-replay-upload-` + hex.EncodeToString(sum[:6])
 	// The handle stays open until the process exits.
-	_, err := windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(`Local\auto-replay-upload`))
+	_, err := windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(name))
 	return err != windows.ERROR_ALREADY_EXISTS
 }
 

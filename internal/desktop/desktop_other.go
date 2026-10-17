@@ -5,7 +5,9 @@ package desktop
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 )
 
@@ -22,7 +24,7 @@ func SetAutostart(bool, []string) error {
 
 func SetDPIAware() {}
 
-func SingleInstance() bool { return true }
+func SingleInstance(string) bool { return true }
 
 // Messages are already in the log, which goes to the terminal here.
 
@@ -37,3 +39,14 @@ func Edit(path string) error {
 	}
 	return exec.Command(cmd, path).Start()
 }
+
+func SetTrayState(paused, failed bool) {}
+
+// Recycle deletes the file; there is no recycle bin to rely on here.
+func Recycle(path string) error { return os.Remove(path) }
+
+func Reveal(path string) error { return OpenFolder(filepath.Dir(path)) }
+
+func OpenFolder(dir string) error { return Edit(dir) }
+
+func PickFiles(dir string) []string { return nil }

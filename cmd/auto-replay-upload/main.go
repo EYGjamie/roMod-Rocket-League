@@ -1,168 +1,146 @@
 // Command auto-replay-upload uploads Rocket League replays to ballchasing.com.
 //
-// It listens to the game's official Stats API, holds Backspace (the game's
-// "save replay" bind) once per match so the replay is saved automatically at
-// the end, and uploads every new file in the replay folder. On Windows it
-// runs in the background with an icon in the notification area.
+// It listens to the game's official Stats API, holds the save-replay key
+// once per match so the replay is saved automatically at the end, uploads
+// every new file in the replay folder and sorts it into ballchasing groups.
+// On Windows it runs in the background with an icon in the notification
+// area; the interface opens as an overlay or in the browser.
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/config"
+	"github.com/EYGjamie/auto-replay-upload/internal/app"
 	"github.com/EYGjamie/auto-replay-upload/internal/desktop"
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
-	"github.com/EYGjamie/auto-replay-upload/internal/gui"
 	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
-	"github.com/EYGjamie/auto-replay-upload/internal/upload"
+	"github.com/EYGjamie/auto-replay-upload/internal/overlay"
+	"github.com/EYGjamie/auto-replay-upload/internal/popup"
 )
+
+// version is set at build time with -ldflags "-X main.version=…".
+var version = "dev"
 
 func main() {
 	desktop.SetDPIAware()
 	exe, _ := os.Executable()
 	defaultCfg := filepath.Join(filepath.Dir(exe), "config.json")
-	cfgPath := flag.String("config", defaultCfg, "Pfad zur Konfigurationsdatei")
+	cfgFlag := flag.String("config", defaultCfg, "Pfad zur Konfigurationsdatei")
 	flag.Parse()
+	cfgPath, err := filepath.Abs(*cfgFlag)
+	if err != nil {
+		fatal("Konfiguration: %v", err)
+	}
 
-	if !desktop.SingleInstance() {
+	if !desktop.SingleInstance(cfgPath) {
 		desktop.ShowInfo("auto-replay-upload läuft schon. Das Symbol findest du im Infobereich der Taskleiste, eventuell unter den ausgeblendeten Symbolen.")
 		return
 	}
-	logPath := filepath.Join(filepath.Dir(*cfgPath), "auto-replay-upload.log")
+	logPath := filepath.Join(filepath.Dir(cfgPath), "auto-replay-upload.log")
 	if err := openLog(logPath); err != nil {
 		fatal("Log-Datei: %v", err)
 	}
 	log.SetFlags(log.Ltime)
-	log.Printf("Gestartet am %s", time.Now().Format("02.01.2006"))
+	log.Printf("Gestartet am %s (Version %s)", time.Now().Format("02.01.2006"), version)
+	app.Version = version
 
-	cfg, err := config.Load(*cfgPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		if err := config.WriteDefault(*cfgPath); err != nil {
-			fatal("Konfiguration konnte nicht angelegt werden: %v", err)
-		}
-		msg := *cfgPath + " angelegt. Trag dort deinen ballchasing-Token ein und starte das Programm neu."
-		log.Print(msg)
-		desktop.ShowInfo(msg)
-		desktop.Edit(*cfgPath)
-		return
-	}
+	hk, err := hotkey.NewManager()
 	if err != nil {
-		desktop.Edit(*cfgPath)
-		fatal("Konfiguration: %v", err)
+		log.Printf("Hotkeys nicht verfügbar: %v", err)
 	}
-
-	dirs := cfg.DemoDirs
-	if len(dirs) == 0 {
-		if dirs, err = game.DefaultDemoDirs(); err != nil {
-			fatal("Replay-Ordner: %v", err)
-		}
-	}
-	watching := false
-	for _, d := range dirs {
-		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			log.Printf("Beobachte %s", d)
-			watching = true
-		}
-	}
-	if !watching {
-		log.Printf("Noch kein Replay-Ordner vorhanden, warte auf: %s", strings.Join(dirs, ", "))
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
-	bc := &ballchasing.Client{
-		BaseURL:    "https://ballchasing.com",
-		Token:      cfg.Token,
-		Visibility: cfg.Visibility,
-		Group:      cfg.Group,
-		HTTPClient: &http.Client{Timeout: 2 * time.Minute},
-	}
-	switch name, err := bc.Ping(ctx); {
-	case errors.Is(err, ballchasing.ErrBadToken):
-		desktop.Edit(*cfgPath)
-		fatal("Der ballchasing-Token ist ungültig. Neuen Token unter https://ballchasing.com/upload erzeugen und in die Konfiguration eintragen.")
-	case err != nil:
-		log.Printf("ballchasing gerade nicht erreichbar (%v), Uploads werden später versucht", err)
-	default:
-		log.Printf("Bei ballchasing angemeldet als %s, Sichtbarkeit: %s", name, cfg.Visibility)
-	}
-
-	state, existed, err := upload.LoadState(filepath.Join(filepath.Dir(*cfgPath), "uploaded.json"))
+	d := &winDesktop{pop: popup.New()}
+	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: logPath, Desktop: d, Hotkeys: hk})
 	if err != nil {
-		fatal("Status: %v", err)
+		desktop.Edit(cfgPath)
+		fatal("Start fehlgeschlagen: %v", err)
 	}
-	w := upload.NewWatcher(dirs, state, bc.Upload)
-	if !existed {
-		n, err := w.Seed()
-		if err != nil {
-			fatal("Status: %v", err)
-		}
-		log.Printf("Erster Start: %d vorhandene Replays werden nicht hochgeladen", n)
-	}
-	go w.Run(ctx, 3*time.Second)
+	defer a.Close()
+	d.url = a.URL()
+	d.overlay = overlay.NewOverlay(d.url)
 
-	guiURL, err := gui.NewServer(bc).Start(ctx)
-	if err != nil {
-		fatal("Oberfläche: %v", err)
-	}
-	overlay := gui.NewOverlay(guiURL)
-	hk, _ := hotkey.Parse(cfg.GUIHotkey)
-	if hk == (hotkey.Hotkey{}) {
-		log.Printf("Kein Hotkey gesetzt, Gruppen-Seite im Browser: %s", guiURL)
-	} else if err := hotkey.Start(hk, overlay.Toggle); err != nil {
-		log.Printf("Hotkey %s nicht verfügbar (%v), Gruppen-Seite im Browser: %s", cfg.GUIHotkey, err, guiURL)
-		hk = hotkey.Hotkey{}
-	} else {
-		log.Printf("%s öffnet und schließt das Overlay zum Gruppieren", cfg.GUIHotkey)
-	}
-
-	t := game.NewTracker(cfg.OnlineOnly, cfg.AutoMark, time.Duration(cfg.MarkHoldMs)*time.Millisecond)
-	if cfg.AutoMark {
-		log.Print("Replays werden nach dem ersten Anstoß automatisch vorgemerkt")
-	} else {
-		log.Print("Automatisches Vormerken ist aus, am Matchende kommt ein Erinnerungston")
-	}
-	go game.ListenStatsAPI(ctx, cfg.StatsAPI, t.Handle)
-
-	autostart := []string{exe}
-	if *cfgPath != defaultCfg {
-		abs, _ := filepath.Abs(*cfgPath)
-		autostart = append(autostart, "-config", abs)
+	d.autostart = []string{exe}
+	if cfgPath != defaultCfg {
+		d.autostart = append(d.autostart, "-config", cfgPath)
 	}
 	if strings.Contains(exe, "go-build") {
 		// go run builds into a temporary folder that is gone afterwards
 		log.Print("Autostart bleibt unverändert (gestartet mit go run)")
-	} else if err := desktop.SyncAutostart(autostart); err != nil {
+	} else if err := desktop.SyncAutostart(d.autostart); err != nil {
 		log.Printf("Autostart konnte nicht eingerichtet werden: %v", err)
 	} else if desktop.Autostart() {
-		log.Print("Startet mit Windows (im Symbol-Menü abschaltbar)")
+		log.Print("Startet mit Windows (in den Einstellungen abschaltbar)")
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	go a.Run(ctx)
+
 	tray := desktop.Tray{
-		Groups:     overlay.Toggle,
-		ConfigPath: *cfgPath,
-		LogPath:    logPath,
-		Autostart:  autostart,
-	}
-	if hk != (hotkey.Hotkey{}) {
-		tray.Hotkey = cfg.GUIHotkey
+		Overlay:     func() { d.overlay.Show("") },
+		Browser:     func() { overlay.OpenBrowser(d.url) },
+		Settings:    func() { d.overlay.Show("einstellungen") },
+		TogglePause: a.TogglePause,
+		Upload:      func() { a.UploadFiles(d.PickFiles()) },
+		OpenFolder:  a.OpenReplayFolder,
+		Hotkey:      a.Config().GUIHotkey,
 	}
 	tray.Run(ctx)
+	stop()
 	log.Print("Beendet")
+}
+
+// winDesktop connects the app to the overlay, popups, tray and shell.
+type winDesktop struct {
+	url       string
+	overlay   *overlay.Overlay
+	pop       *popup.Manager
+	autostart []string
+}
+
+func (d *winDesktop) ShowOverlay(route string) { d.overlay.Show(route) }
+func (d *winDesktop) ToggleOverlay()           { d.overlay.Toggle() }
+
+// OpenBrowser opens a web address, or a view of the interface.
+func (d *winDesktop) OpenBrowser(target string) {
+	if !strings.HasPrefix(target, "http") {
+		target = d.url + "#/" + target
+	}
+	overlay.OpenBrowser(target)
+}
+
+func (d *winDesktop) ShowQuickSort(q app.QuickSort, pick func(int)) {
+	d.pop.ShowQuickSort(popup.Quick{Title: q.Title, Target: q.Target, Options: q.Options, Seconds: q.Seconds}, pick)
+}
+
+func (d *winDesktop) HideQuickSort() { d.pop.HideQuickSort() }
+
+func (d *winDesktop) Toast(t app.Toast) {
+	pt := popup.Toast{Title: t.Title, Body: t.Body, Disable: t.Disable}
+	for _, a := range t.Actions {
+		pt.Actions = append(pt.Actions, popup.Action{Label: a.Label, Run: a.Run})
+	}
+	d.pop.Toast(pt)
+}
+
+func (d *winDesktop) SetTray(paused, failed bool) { desktop.SetTrayState(paused, failed) }
+func (d *winDesktop) Recycle(path string) error   { return desktop.Recycle(path) }
+func (d *winDesktop) Reveal(path string) error    { return desktop.Reveal(path) }
+func (d *winDesktop) OpenFolder(dir string) error { return desktop.OpenFolder(dir) }
+func (d *winDesktop) Edit(path string) error      { return desktop.Edit(path) }
+func (d *winDesktop) Autostart() bool             { return desktop.Autostart() }
+func (d *winDesktop) SetAutostart(on bool) error  { return desktop.SetAutostart(on, d.autostart) }
+
+func (d *winDesktop) PickFiles() []string {
+	home, _ := os.UserHomeDir()
+	return desktop.PickFiles(filepath.Join(home, "Documents", "My Games", "Rocket League", "TAGame"))
 }
 
 // openLog sends log output to path as well as the terminal, if there is one,
