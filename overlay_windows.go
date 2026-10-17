@@ -1,0 +1,171 @@
+//go:build windows
+
+package main
+
+import (
+	"log"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"unsafe"
+
+	webview2 "github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
+)
+
+var (
+	procSetWindowLongPtr              = user32.NewProc("SetWindowLongPtrW")
+	procSetWindowPos                  = user32.NewProc("SetWindowPos")
+	procShowWindow                    = user32.NewProc("ShowWindow")
+	procSendMessage                   = user32.NewProc("SendMessageW")
+	procSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
+	procMonitorFromWindow             = user32.NewProc("MonitorFromWindow")
+	procGetMonitorInfo                = user32.NewProc("GetMonitorInfoW")
+	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
+	procDwmSetWindowAttribute         = windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
+)
+
+const (
+	wsPopup                     = 0x80000000
+	wsExToolWindow              = 0x00000080 // no taskbar button
+	swHide                      = 0
+	swpFrameChanged             = 0x0020
+	swpShowWindow               = 0x0040
+	wmSize                      = 0x0005
+	monitorDefaultToPrimary     = 1
+	dwmwaWindowCornerPreference = 33
+	dwmwcpRound                 = 2
+
+	// negative handles and indices as two's complement
+	hwndTopmost              = ^uintptr(0)  // -1
+	gwlStyle                 = ^uintptr(15) // -16
+	gwlExStyle               = ^uintptr(19) // -20
+	dpiAwarenessPerMonitorV2 = ^uintptr(3)  // -4
+)
+
+type rect struct{ left, top, right, bottom int32 }
+
+type monitorInfo struct {
+	size    uint32
+	monitor rect
+	work    rect
+	flags   uint32
+}
+
+var dpiOnce sync.Once
+
+// overlay is a frameless, always-on-top window showing the GUI page. It is
+// created on first use and afterwards only hidden and shown again.
+type overlay struct {
+	url      string
+	mu       sync.Mutex
+	view     webview2.WebView
+	hwnd     uintptr
+	creating bool
+}
+
+func newOverlay(url string) *overlay {
+	return &overlay{url: url}
+}
+
+// toggle opens the overlay, brings it to the front, or hides it when it
+// already is in front.
+func (o *overlay) toggle() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	switch {
+	case o.creating:
+	case o.view == nil:
+		o.creating = true
+		go o.run()
+	case windows.IsWindowVisible(windows.HWND(o.hwnd)) && uintptr(windows.GetForegroundWindow()) == o.hwnd:
+		hwnd := o.hwnd
+		o.view.Dispatch(func() { procShowWindow.Call(hwnd, swHide) })
+	default:
+		view, hwnd := o.view, o.hwnd
+		view.Dispatch(func() {
+			view.Eval("location.reload()") // fresh replay list
+			showOverlay(hwnd)
+		})
+	}
+}
+
+// run creates the window and runs its message loop on a dedicated thread,
+// as WebView2 requires.
+func (o *overlay) run() {
+	runtime.LockOSThread()
+	windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED)
+	dpiOnce.Do(func() { procSetProcessDpiAwarenessContext.Call(dpiAwarenessPerMonitorV2) })
+
+	_, _, w, h := overlayBounds()
+	view := webview2.NewWithOptions(webview2.WebViewOptions{
+		AutoFocus: true,
+		DataPath:  webviewDataPath(),
+		WindowOptions: webview2.WindowOptions{
+			Title:  "Replays gruppieren",
+			Width:  uint(w),
+			Height: uint(h),
+			Center: true,
+		},
+	})
+	if view == nil {
+		o.mu.Lock()
+		o.creating = false
+		o.mu.Unlock()
+		log.Print("WebView2 ist nicht verfügbar, öffne die Seite im Browser")
+		if err := openBrowser(o.url); err != nil {
+			log.Printf("Browser konnte nicht geöffnet werden: %v", err)
+		}
+		return
+	}
+
+	hwnd := uintptr(view.Window())
+	procShowWindow.Call(hwnd, swHide)
+	procSetWindowLongPtr.Call(hwnd, gwlStyle, wsPopup)
+	procSetWindowLongPtr.Call(hwnd, gwlExStyle, wsExToolWindow)
+	corners := uint32(dwmwcpRound) // Windows 11 only, ignored elsewhere
+	procDwmSetWindowAttribute.Call(hwnd, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&corners)), 4)
+	view.Bind("closeOverlay", func() { procShowWindow.Call(hwnd, swHide) })
+	view.Navigate(o.url)
+	showOverlay(hwnd)
+
+	o.mu.Lock()
+	o.view, o.hwnd, o.creating = view, hwnd, false
+	o.mu.Unlock()
+
+	view.Run() // returns once the window was destroyed
+
+	o.mu.Lock()
+	o.view, o.hwnd = nil, 0
+	o.mu.Unlock()
+}
+
+// showOverlay centers the window on the monitor of the current foreground
+// window (usually the game), puts it on top and focuses it.
+func showOverlay(hwnd uintptr) {
+	x, y, w, h := overlayBounds()
+	procSetWindowPos.Call(hwnd, hwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(h), swpFrameChanged|swpShowWindow)
+	procSendMessage.Call(hwnd, wmSize, 0, 0) // let WebView2 fill the new client area
+	procSetForegroundWindow.Call(hwnd)
+}
+
+func overlayBounds() (x, y, w, h int32) {
+	work := rect{0, 0, 1920, 1080}
+	mon, _, _ := procMonitorFromWindow.Call(uintptr(windows.GetForegroundWindow()), monitorDefaultToPrimary)
+	mi := monitorInfo{size: uint32(unsafe.Sizeof(monitorInfo{}))}
+	if ok, _, _ := procGetMonitorInfo.Call(mon, uintptr(unsafe.Pointer(&mi))); ok != 0 {
+		work = mi.work
+	}
+	mw, mh := work.right-work.left, work.bottom-work.top
+	w, h = mw*7/10, mh*8/10
+	return work.left + (mw-w)/2, work.top + (mh-h)/2, w, h
+}
+
+func webviewDataPath() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "" // library default
+	}
+	return filepath.Join(dir, "auto-replay-upload", "WebView2")
+}

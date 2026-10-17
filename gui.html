@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Replays gruppieren</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1b1f24; --muted: #5b6470; --line: #dde1e6;
+    --accent: #1f6feb; --accent-text: #ffffff; --sel: #e8f0fe;
+    --blue: #2563d9; --orange: #d4661b; --ok: #1a7f37; --err: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --panel: #171b21; --text: #e6e9ed; --muted: #9aa4af; --line: #2a3038;
+      --accent: #4c8dff; --accent-text: #0b0d10; --sel: #1b2a44;
+      --blue: #7aa5ff; --orange: #ff9d57; --ok: #3fb950; --err: #ff7b72;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, "Segoe UI", -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  header > div, main, footer > div { max-width: 1100px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
+  header > div { padding-top: 16px; padding-bottom: 16px; }
+  header > .row { flex-wrap: nowrap; }
+  button.close { font-size: 16px; line-height: 1; padding: 8px 11px; color: var(--muted); }
+  button.close:hover { color: var(--text); background: var(--sel); }
+  h1 { margin: 0 0 2px; font-size: 18px; }
+  main { padding-top: 16px; padding-bottom: 96px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .spread { justify-content: space-between; }
+  .muted { color: var(--muted); }
+  label { color: var(--muted); }
+  select, input[type=text], input[type=search] {
+    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; min-width: 240px; max-width: 100%;
+  }
+  #filter { flex: 1 1 320px; max-width: 480px; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+  button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .table-wrap { overflow-x: auto; margin: 0 -16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 16px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th:first-child, td:first-child { padding-left: 16px; width: 32px; }
+  th { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: color-mix(in srgb, var(--sel) 50%, transparent); }
+  tbody tr.selected td { background: var(--sel); }
+  .nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .b { color: var(--blue); font-weight: 600; }
+  .o { color: var(--orange); font-weight: 600; }
+  .players { font-size: 12px; }
+  .empty { padding: 24px 16px; text-align: center; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); }
+  footer > div { padding-top: 12px; padding-bottom: 12px; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+  a { color: var(--accent); }
+  @media (max-width: 720px) {
+    header > div, main, footer > div { padding-left: 16px; padding-right: 16px; }
+    .hide-sm { display: none; }
+    select, input[type=text], input[type=search] { min-width: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<header><div class="row spread">
+  <div>
+    <h1>Replays gruppieren</h1>
+    <div class="muted">Gruppe wählen oder neu anlegen, Replays anhaken, verschieben.</div>
+  </div>
+  <button id="close" class="close" hidden aria-label="Overlay schließen" title="Schließen (Esc)">✕</button>
+</div></header>
+
+<main>
+  <section class="panel">
+    <div class="row">
+      <label for="group">Gruppe</label>
+      <select id="group"><option>Lade …</option></select>
+      <span id="new-group" class="row" hidden>
+        <input id="group-name" type="text" maxlength="100" placeholder="Name der neuen Gruppe" aria-label="Name der neuen Gruppe">
+        <label><input id="clusters" type="checkbox"> Teams mit Wechselspielern</label>
+      </span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="row spread" style="margin-bottom: 8px">
+      <input id="filter" type="search" placeholder="Filtern nach Spieler, Map, Modus, Gruppe …" aria-label="Replays filtern">
+      <span id="count" class="muted"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th><input id="all" type="checkbox" aria-label="Alle sichtbaren auswählen"></th>
+          <th>Datum</th><th>Modus</th><th class="hide-sm">Map</th><th>Ergebnis</th><th class="hide-sm">Gruppe</th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="6" class="empty muted">Lade Replays …</td></tr></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top: 12px"><button id="more" hidden>Mehr laden</button></div>
+  </section>
+</main>
+
+<footer><div class="row">
+  <span id="selected" class="nowrap">0 ausgewählt</span>
+  <button id="assign" class="primary" disabled>In Gruppe verschieben</button>
+  <span id="status" role="status"></span>
+</div></footer>
+
+<script>
+const token = new URLSearchParams(location.search).get('k') || '';
+const $ = id => document.getElementById(id);
+const NEW = '__new';
+const state = { replays: [], next: '', selected: new Set(), busy: false };
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { 'X-Token': token, 'Content-Type': 'application/json' } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+  return data;
+}
+
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) k === 'class' ? (e.className = v) : e.setAttribute(k, v);
+  e.append(...children.filter(c => c != null));
+  return e;
+}
+
+function setStatus(text, kind) {
+  $('status').replaceChildren(text);
+  $('status').className = kind || '';
+}
+
+const fmtDate = s => { const d = new Date(s); return isNaN(d) ? (s || '') : d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }); };
+const names = t => (t.players || []).map(p => p.name).join(', ');
+const groupNames = r => (r.groups || []).map(g => g.name).join(', ');
+
+function visible() {
+  const q = $('filter').value.trim().toLowerCase();
+  if (!q) return state.replays;
+  return state.replays.filter(r => [r.replay_title, r.map_name, r.playlist_name, r.blue.name, r.orange.name,
+    names(r.blue), names(r.orange), groupNames(r)].join(' ').toLowerCase().includes(q));
+}
+
+function render() {
+  const rows = visible();
+  if (!rows.length) {
+    const msg = state.replays.length ? 'Kein Replay passt zum Filter.' : 'Noch keine Replays auf ballchasing.';
+    $('rows').replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'empty muted' }, msg)));
+  } else {
+    $('rows').replaceChildren(...rows.map(row));
+  }
+  $('all').checked = rows.length > 0 && rows.every(r => state.selected.has(r.id));
+  $('count').textContent = `${rows.length} von ${state.replays.length} Replays`;
+  $('more').hidden = !state.next;
+  update();
+}
+
+function row(r) {
+  const cb = el('input', { type: 'checkbox', 'aria-label': 'Replay auswählen' });
+  cb.checked = state.selected.has(r.id);
+  const tr = el('tr', { class: cb.checked ? 'selected' : '' },
+    el('td', {}, cb),
+    el('td', { class: 'nowrap' }, fmtDate(r.date)),
+    el('td', {}, r.playlist_name || '–'),
+    el('td', { class: 'hide-sm' }, r.map_name || ''),
+    el('td', {},
+      el('div', { class: 'nowrap' },
+        el('span', { class: 'b' }, `${r.blue.name || 'Blau'} ${r.blue.goals || 0}`), ' : ',
+        el('span', { class: 'o' }, `${r.orange.goals || 0} ${r.orange.name || 'Orange'}`)),
+      el('div', { class: 'players muted' }, `${names(r.blue)} – ${names(r.orange)}`)),
+    el('td', { class: 'hide-sm muted' }, groupNames(r) || '–'));
+  tr.addEventListener('click', e => {
+    if (e.target !== cb) cb.checked = !cb.checked;
+    cb.checked ? state.selected.add(r.id) : state.selected.delete(r.id);
+    tr.classList.toggle('selected', cb.checked);
+    $('all').checked = visible().every(v => state.selected.has(v.id));
+    update();
+  });
+  return tr;
+}
+
+function update() {
+  const n = state.selected.size;
+  const isNew = $('group').value === NEW;
+  $('new-group').hidden = !isNew;
+  $('selected').textContent = `${n} ausgewählt`;
+  $('assign').disabled = state.busy || n === 0 || !$('group').value || (isNew && !$('group-name').value.trim());
+}
+
+async function loadGroups(selectId) {
+  const groups = await api('/api/groups');
+  const sel = $('group');
+  sel.replaceChildren(el('option', { value: NEW }, '+ Neue Gruppe …'),
+    ...groups.map(g => el('option', { value: g.id }, `${g.name} (${g.direct_replays})`)));
+  sel.value = selectId || NEW;
+  update();
+}
+
+async function loadReplays(more) {
+  $('more').disabled = true;
+  try {
+    const page = await api('/api/replays' + (more ? '?next=' + encodeURIComponent(state.next) : ''));
+    state.replays = more ? state.replays.concat(page.list) : page.list;
+    state.next = page.next || '';
+    render();
+  } catch (e) {
+    setStatus(e.message, 'err');
+  } finally {
+    $('more').disabled = false;
+  }
+}
+
+async function assign() {
+  const ids = [...state.selected];
+  state.busy = true;
+  update();
+  let groupId = $('group').value;
+  try {
+    let groupName = $('group').selectedOptions[0].textContent.replace(/ \(\d+\)$/, '');
+    if (groupId === NEW) {
+      groupName = $('group-name').value.trim();
+      setStatus(`Lege Gruppe „${groupName}“ an …`);
+      groupId = (await api('/api/groups', { method: 'POST', body: JSON.stringify({ name: groupName, clusters: $('clusters').checked }) })).id;
+      $('group-name').value = '';
+    }
+    setStatus(`Verschiebe ${ids.length} Replays …`);
+    const res = await api('/api/assign', { method: 'POST', body: JSON.stringify({ group: groupId, replays: ids }) });
+    const failed = new Set(res.failed.map(f => f.id));
+    for (const r of state.replays) {
+      if (state.selected.has(r.id) && !failed.has(r.id)) r.groups = [{ id: groupId, name: groupName }];
+    }
+    state.selected = failed;
+    const link = el('a', { href: 'https://ballchasing.com/group/' + encodeURIComponent(groupId), target: '_blank', rel: 'noopener noreferrer' }, 'Gruppe öffnen');
+    $('status').replaceChildren(`${res.assigned} verschoben`,
+      failed.size ? `, ${failed.size} fehlgeschlagen (${res.failed[0].error})` : '', '. ', link);
+    $('status').className = failed.size ? 'err' : 'ok';
+  } catch (e) {
+    setStatus(e.message, 'err');
+  } finally {
+    // refresh counts; keeps a just-created group selected even if moving failed
+    if (groupId !== NEW) await loadGroups(groupId).catch(() => {});
+    state.busy = false;
+    render();
+  }
+}
+
+$('group').addEventListener('change', update);
+$('group-name').addEventListener('input', update);
+$('filter').addEventListener('input', render);
+$('more').addEventListener('click', () => loadReplays(true));
+$('assign').addEventListener('click', assign);
+$('all').addEventListener('change', e => {
+  for (const r of visible()) e.target.checked ? state.selected.add(r.id) : state.selected.delete(r.id);
+  render();
+});
+
+// In the overlay window the app provides closeOverlay(); in a browser it is missing.
+if (typeof window.closeOverlay === 'function') {
+  $('close').hidden = false;
+  $('close').addEventListener('click', () => window.closeOverlay());
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (e.target === $('filter') && $('filter').value) return; // first Esc clears the filter
+    window.closeOverlay();
+  });
+}
+
+loadGroups().catch(e => setStatus(e.message, 'err'));
+loadReplays(false);
+</script>
+</body>
+</html>
