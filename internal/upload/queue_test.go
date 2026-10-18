@@ -119,6 +119,28 @@ func TestUploadsSettledNewReplays(t *testing.T) {
 	}
 }
 
+func TestScanSeesFilesAddedElsewhere(t *testing.T) {
+	e := newEnv(t)
+	e.write("erst.replay", "x")
+	e.q.scan()
+	e.q.scan() // the names are cached now
+	e.write("hand.replay", "x")
+	if err := e.q.AddManual(filepath.Join(e.dir, "hand.replay")); err != nil {
+		t.Fatal(err)
+	}
+	e.q.scan()
+	e.q.scan()
+	if f := e.file("hand.replay"); !f.Manual {
+		t.Errorf("scan replaced a file added by hand: %+v", f)
+	}
+	e.write("neu.replay", "x")
+	e.q.scan()
+	e.q.scan()
+	if f := e.file("neu.replay"); f.State != store.Queued {
+		t.Errorf("new file after the cache was filled: %+v", f)
+	}
+}
+
 func TestRetriesTwiceThenGivesUp(t *testing.T) {
 	e := newEnv(t)
 	e.write("boom.replay", "x")

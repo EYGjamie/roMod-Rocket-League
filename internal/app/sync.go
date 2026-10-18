@@ -257,7 +257,7 @@ func (a *App) fetchDetail(ctx context.Context, id string) error {
 	if err := a.store.PutDetail(rep, raw); err != nil {
 		return err
 	}
-	a.dedupe()
+	a.dedupeAfter(old, id)
 	a.events.publish("replays")
 	return nil
 }
@@ -341,56 +341,91 @@ func (a *App) dedupe() {
 	if err != nil {
 		return
 	}
-	type bucket struct{ list []store.Replay }
-	byKey := map[string]*bucket{}
+	byKey := map[string][]store.Replay{}
 	for _, r := range replays {
-		var pids []string
-		for _, p := range r.Players {
-			pids = append(pids, p.PID)
-		}
-		sort.Strings(pids)
-		key := strings.Join([]string{r.MapCode, strconv.Itoa(r.BlueGoals), strconv.Itoa(r.OrangeGoals), strings.Join(pids, ",")}, "|")
-		b := byKey[key]
-		if b == nil {
-			b = &bucket{}
-			byKey[key] = b
-		}
-		b.list = append(b.list, r)
+		k := gameKey(r)
+		byKey[k] = append(byKey[k], r)
 	}
-	for _, b := range byKey {
-		if len(b.list) < 2 {
-			for _, r := range b.list {
-				if r.DupOf != "" {
-					a.store.SetDupOf(r.ID, "")
-				}
-			}
-			continue
+	for _, list := range byKey {
+		a.dedupeBucket(list)
+	}
+}
+
+// dedupeAfter does the same as dedupe after replay id was stored, but only
+// for the uploads that can be the same game. old is the replay as it was
+// before (the zero Replay if new), as its key may have changed.
+func (a *App) dedupeAfter(old store.Replay, id string) {
+	cur, ok, err := a.store.Replay(id)
+	if err != nil {
+		return
+	}
+	check := map[string]store.Replay{}
+	if old.ID != "" {
+		check[gameKey(old)] = old
+	}
+	if ok {
+		check[gameKey(cur)] = cur
+	}
+	for k, r := range check {
+		same, err := a.store.ReplaysWithScore(r.MapCode, r.BlueGoals, r.OrangeGoals)
+		if err != nil {
+			return
 		}
-		// preferred first: own uploads, then the earliest upload
-		slices.SortFunc(b.list, func(x, y store.Replay) int {
-			if x.Own != y.Own {
-				if x.Own {
-					return -1
-				}
-				return 1
+		var list []store.Replay
+		for _, s := range same {
+			if gameKey(s) == k {
+				list = append(list, s)
 			}
-			return x.Created.Compare(y.Created)
-		})
-		var keep []store.Replay
-		for _, r := range b.list {
-			dupOf := ""
-			for _, k := range keep {
-				if sameGame(k, r) {
-					dupOf = k.ID
-					break
-				}
+		}
+		a.dedupeBucket(list)
+	}
+}
+
+// gameKey is equal for uploads that can be the same game: same map, score
+// and players.
+func gameKey(r store.Replay) string {
+	var pids []string
+	for _, p := range r.Players {
+		pids = append(pids, p.PID)
+	}
+	sort.Strings(pids)
+	return strings.Join([]string{r.MapCode, strconv.Itoa(r.BlueGoals), strconv.Itoa(r.OrangeGoals), strings.Join(pids, ",")}, "|")
+}
+
+// dedupeBucket marks the duplicates among uploads with the same gameKey.
+func (a *App) dedupeBucket(list []store.Replay) {
+	if len(list) < 2 {
+		for _, r := range list {
+			if r.DupOf != "" {
+				a.store.SetDupOf(r.ID, "")
 			}
-			if dupOf == "" {
-				keep = append(keep, r)
+		}
+		return
+	}
+	// preferred first: own uploads, then the earliest upload
+	slices.SortFunc(list, func(x, y store.Replay) int {
+		if x.Own != y.Own {
+			if x.Own {
+				return -1
 			}
-			if r.DupOf != dupOf {
-				a.store.SetDupOf(r.ID, dupOf)
+			return 1
+		}
+		return x.Created.Compare(y.Created)
+	})
+	var keep []store.Replay
+	for _, r := range list {
+		dupOf := ""
+		for _, k := range keep {
+			if sameGame(k, r) {
+				dupOf = k.ID
+				break
 			}
+		}
+		if dupOf == "" {
+			keep = append(keep, r)
+		}
+		if r.DupOf != dupOf {
+			a.store.SetDupOf(r.ID, dupOf)
 		}
 	}
 }

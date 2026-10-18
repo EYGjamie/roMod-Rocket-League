@@ -54,8 +54,9 @@ type Queue struct {
 	badToken atomic.Bool
 	wake     chan struct{}
 
-	mu      sync.Mutex // guards pending
+	mu      sync.Mutex // guards pending and known
 	pending map[string]int64
+	known   map[string]bool // file names in the store, reloaded on a miss
 
 	retryDelays []time.Duration // after the first and second failed attempt
 	offlineWait time.Duration
@@ -137,18 +138,16 @@ func isReplay(name string) bool {
 }
 
 // scan queues every new replay file once its size has stopped changing.
+// The known names are only read from the store when a folder holds one the
+// cache lacks: files are never removed from the store, but Seed, AddManual
+// and the import add some.
 func (q *Queue) scan() {
 	if q.paused.Load() {
 		return
 	}
-	known, err := q.cfg.Store.FileNames()
-	if err != nil {
-		log.Printf("Status lesen: %v", err)
-		return
-	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	added := false
+	added, reloaded := false, false
 	for _, dir := range q.cfg.Dirs() {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -156,7 +155,18 @@ func (q *Queue) scan() {
 		}
 		for _, e := range entries {
 			name := e.Name()
-			if e.IsDir() || !isReplay(name) || known[name] {
+			if e.IsDir() || !isReplay(name) {
+				continue
+			}
+			if !q.known[name] && !reloaded {
+				known, err := q.cfg.Store.FileNames()
+				if err != nil {
+					log.Printf("Status lesen: %v", err)
+					return
+				}
+				q.known, reloaded = known, true
+			}
+			if q.known[name] {
 				continue
 			}
 			info, err := e.Info()
@@ -174,6 +184,7 @@ func (q *Queue) scan() {
 				log.Printf("Status speichern: %v", err)
 				continue
 			}
+			q.known[name] = true
 			log.Printf("Neues Replay %s", name)
 			added = true
 		}

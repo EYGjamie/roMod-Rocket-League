@@ -126,6 +126,8 @@ CREATE TABLE borrows (
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE ignored (key TEXT PRIMARY KEY);
+`, `
+CREATE INDEX replays_score ON replays(map_code, blue_goals, orange_goals);
 `}
 
 func (s *Store) migrate() error {

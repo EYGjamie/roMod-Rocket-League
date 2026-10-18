@@ -319,6 +319,41 @@ func TestSyncMergesOwnAndMatesReplays(t *testing.T) {
 	}
 }
 
+func TestDedupeAfterOneReplay(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a := &App{store: st}
+	base := time.Date(2026, 10, 18, 20, 0, 0, 0, time.Local)
+	game := func(id string, own bool, created time.Duration) store.Replay {
+		return store.Replay{ID: id, Own: own, MapCode: "stadium_p", BlueGoals: 2, OrangeGoals: 1, Date: base, Created: base.Add(created),
+			Players: []store.Player{{Team: "blue", PID: "steam:1"}, {Team: "orange", PID: "epic:2"}}}
+	}
+	dupOf := func(id string) string {
+		r, _, _ := st.Replay(id)
+		return r.DupOf
+	}
+	st.PutReplay(game("mate", false, time.Minute))
+	a.dedupeAfter(store.Replay{}, "mate")
+	st.PutReplay(game("own", true, 2*time.Minute))
+	a.dedupeAfter(store.Replay{}, "own")
+	if dupOf("mate") != "own" || dupOf("own") != "" {
+		t.Fatalf("mate → %q, own → %q; want the own upload shown", dupOf("mate"), dupOf("own"))
+	}
+
+	// the own upload turns out to be another game: the mate's is shown again
+	old, _, _ := st.Replay("own")
+	other := game("own", true, 2*time.Minute)
+	other.OrangeGoals = 3
+	st.PutReplay(other)
+	a.dedupeAfter(old, "own")
+	if dupOf("mate") != "" || dupOf("own") != "" {
+		t.Errorf("after the score changed: mate → %q, own → %q", dupOf("mate"), dupOf("own"))
+	}
+}
+
 func TestIdentityGuess(t *testing.T) {
 	ta := newTestApp(t, nil)
 	ta.store.SetIdentities(nil)
