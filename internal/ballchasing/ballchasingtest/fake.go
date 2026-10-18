@@ -81,7 +81,8 @@ func New(t interface {
 	Cleanup(func())
 }) *Server {
 	f := &Server{
-		Me:       ballchasing.Me{Name: "Jamie", SteamID: "76561198000000001"},
+		Me: ballchasing.Me{Name: "Jamie", SteamID: "76561198000000001", Type: "regular",
+			Quota: ballchasing.Quota{Uploads: ballchasing.Usage{Max: 10}}},
 		replays:  map[string]*Replay{},
 		groups:   map[string]*Group{},
 		patches:  map[string][]string{},
@@ -91,7 +92,9 @@ func New(t interface {
 	f.Template = f.defaultTemplate
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/{$}", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"name": f.Me.Name, "steam_id": f.Me.SteamID, "type": "regular"})
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		writeJSON(w, http.StatusOK, f.Me)
 	})
 	mux.HandleFunc("POST /api/v2/upload", f.upload)
 	mux.HandleFunc("GET /api/replays", f.list)
@@ -279,6 +282,7 @@ func (f *Server) upload(w http.ResponseWriter, r *http.Request) {
 		rp.Visibility = v
 	}
 	id := f.add(rp)
+	f.Me.Quota.Uploads.Used++
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "location": "https://ballchasing.com/replay/" + id})
 }
 

@@ -3,10 +3,7 @@
 package desktop
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"os/exec"
-	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -20,6 +17,25 @@ const (
 	dpiAwarenessPerMonitorV2 = ^uintptr(3) // -4 as two's complement
 )
 
+// TrayHint says where to find the icon, SignIn when autostart runs the tool.
+const (
+	TrayHint = "Das Symbol findest du im Infobereich der Taskleiste, eventuell unter den ausgeblendeten Symbolen."
+	SignIn   = "mit Windows"
+)
+
+// A left click on the icon opens the overlay.
+const leftClickOpens = true
+
+func trayHost() error { return nil }
+
+// menuTitle shows the shortcut right-aligned after a tab.
+func menuTitle(title, hotkey string) string {
+	if hotkey == "" {
+		return title
+	}
+	return title + "\t" + hotkey
+}
+
 var procSetProcessDpiAwarenessContext = windows.NewLazySystemDLL("user32.dll").NewProc("SetProcessDpiAwarenessContext")
 
 // SetDPIAware keeps menus, message boxes and the overlay sharp on scaled
@@ -31,8 +47,7 @@ func SetDPIAware() {
 // SingleInstance reports false if the tool already runs for this user with
 // the same configuration file.
 func SingleInstance(configPath string) bool {
-	sum := sha1.Sum([]byte(strings.ToLower(configPath)))
-	name := `Local\auto-replay-upload-` + hex.EncodeToString(sum[:6])
+	name := `Local\` + instanceKey(configPath)
 	// The handle stays open until the process exits.
 	_, err := windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(name))
 	return err != windows.ERROR_ALREADY_EXISTS

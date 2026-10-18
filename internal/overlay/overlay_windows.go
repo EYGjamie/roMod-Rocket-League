@@ -53,6 +53,9 @@ type monitorInfo struct {
 	flags   uint32
 }
 
+// Native reports that the overlay is an own window over the game.
+const Native = true
+
 // Overlay is a frameless, always-on-top window showing the GUI page. It is
 // created on first use and afterwards only hidden and shown again.
 type Overlay struct {

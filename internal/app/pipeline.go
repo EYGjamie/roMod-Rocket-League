@@ -22,6 +22,7 @@ func (a *App) processed(ctx context.Context, f store.File, r ballchasing.Replay,
 	rep := store.FromAPI(r, me.SteamID)
 	if !duplicate {
 		rep.Own = true // a 201 is always our own upload
+		a.countUpload()
 	}
 	if rep.Own {
 		rep.File = f.Name
@@ -107,7 +108,7 @@ func (a *App) sortNew(ctx context.Context, r store.Replay) {
 		a.notifyUploaded(r, "")
 		return
 	}
-	if !a.config().QuickSort {
+	if !a.config().QuickSort || !a.desk.Platform().QuickSort {
 		a.applySort(r, target, false)
 		return
 	}

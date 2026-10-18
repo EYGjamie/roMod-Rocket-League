@@ -1,5 +1,5 @@
-import { api, h, fill, run, sw, on, debounce, visibilityNames, groupPath } from '../lib.js';
-import { tokenForm, identityEditor, keyCapture, testKeyButton } from './settings.js';
+import { api, h, fill, run, sw, on, debounce, visibilityNames, groupPath, system } from '../lib.js';
+import { tokenForm, identityEditor, keyCapture, testKeyButton, saveKeyMissing } from './settings.js';
 import { folderOptions } from './history.js';
 
 export const title = 'Einrichtung';
@@ -7,6 +7,7 @@ export const title = 'Einrichtung';
 const stepNames = ['ballchasing', 'Replay-Ordner', 'Speichern-Taste', 'Upload & Ordner', 'Alte Replays'];
 
 export async function mount(root, ctx) {
+  const sys = system(ctx.state);
   let step = Number((() => { try { return sessionStorage.getItem('einrichtung'); } catch { return null; } })() || 0);
   let info = await api('/api/setup');
   let settings = await api('/api/settings');
@@ -46,7 +47,7 @@ export async function mount(root, ctx) {
     return [
       h('h2', null, 'Mit ballchasing verbinden'),
       h('p', { class: 'muted' }, 'Das Tool lädt deine Replays mit deinem Upload-Token hoch. Melde dich auf ballchasing.com mit Steam an und kopiere den Token von der Upload-Seite.'),
-      acc.status === 'ok' ? h('div', { class: 'banner info' }, 'Verbunden als ' + acc.name + '.') : tokenForm(() => render()),
+      acc.status === 'ok' ? h('div', { class: 'banner info' }, 'Verbunden als ' + acc.name + '.') : tokenForm(() => render(), sys),
       ids,
       nav(() => go(1)),
     ];
@@ -57,9 +58,14 @@ export async function mount(root, ctx) {
     const input = h('input', { type: 'text', placeholder: 'Anderen Ordner hinzufügen', style: { flex: '1' } });
     return [
       h('h2', null, 'Replay-Ordner'),
-      h('p', { class: 'muted' }, 'Hier speichert Rocket League die Replays. Steam und Epic nutzen verschiedene Ordner, beide werden beobachtet.'),
-      h('div', { class: 'list' }, info.dirs.map(d => h('div', { class: 'item', style: { gridTemplateColumns: '1fr auto' } },
-        h('span', { class: 'ellipsis', title: d.path }, d.path), h('span', { class: 'muted' }, d.exists ? d.replays + ' Replays' : 'noch nicht vorhanden')))),
+      h('p', { class: 'muted' }, {
+        windows: 'Hier speichert Rocket League die Replays. Steam und Epic nutzen verschiedene Ordner, beide werden beobachtet.',
+        linux: 'Rocket League läuft unter Proton oder Wine und speichert die Replays in dessen Präfix. Gefunden werden Steam (auch weitere Bibliotheken, Flatpak und Snap), Heroic, Lutris, Bottles und Wine.',
+        darwin: 'Rocket League läuft auf dem Mac unter Wine und speichert die Replays in der Flasche. Gefunden werden CrossOver, Whisky und Heroic.',
+      }[sys.os] || 'Hier speichert Rocket League die Replays.'),
+      info.dirs.length ? h('div', { class: 'list' }, info.dirs.map(d => h('div', { class: 'item', style: { gridTemplateColumns: '1fr auto' } },
+        h('span', { class: 'ellipsis', title: d.path }, d.path), h('span', { class: 'muted' }, d.exists ? d.replays + ' Replays' : 'noch nicht vorhanden'))))
+        : h('div', { class: 'banner warn' }, 'Kein Replay-Ordner gefunden. Bitte den Ordner TAGame/Demos des Spiels hinzufügen; er erscheint, sobald das Spiel das erste Replay gespeichert hat.'),
       h('div', { class: 'row nowrap', style: { marginTop: '10px' } }, input, h('button', { onclick: async () => {
         const p = input.value.trim();
         if (!p) return;
@@ -77,12 +83,18 @@ export async function mount(root, ctx) {
       h('h2', null, 'Spiel und Speichern-Taste'),
       st.stats_api ? h('div', { class: 'banner info' }, 'Rocket League ist verbunden.') : h('div', { class: 'banner warn stack', style: { display: 'block' } },
         h('div', null, h('strong', null, 'Rocket League ist nicht verbunden.'), ' Läuft das Spiel, ist die Stats API wahrscheinlich aus.'),
-        h('div', null, 'Spiel beenden, im Installationsordner TAGame\\Config\\TAStatsAPI.ini öffnen und eintragen:'),
+        h('div', null, `Spiel beenden, im Installationsordner ${sys.windows ? 'TAGame\\Config\\TAStatsAPI.ini' : 'TAGame/Config/TAStatsAPI.ini'} öffnen und eintragen:`),
         h('pre', { style: { margin: '6px 0', padding: '8px 10px', background: 'var(--bg)', borderRadius: '8px' } }, '[TAGame.MatchStatsExporter_TA]\nPacketSendRate=1\nPort=49123'),
-        h('div', { class: 'muted' }, 'Die Datei liegt meist unter Program Files und braucht zum Speichern Administratorrechte.')),
-      h('p', { class: 'muted' }, 'Kurz nach dem Anstoß drückt das Tool einmal die Taste, mit der das Spiel das Replay am Ende speichert (Standard: Rücktaste). Hast du sie im Spiel geändert, wähle hier dieselbe.'),
-      h('div', { class: 'row' }, keyCapture(settings.mark_key, code => run(() => api('/api/settings', { method: 'PUT', body: { mark_key: code } }), 'Gespeichert'))),
-      h('div', { style: { marginTop: '10px' } }, testKeyButton()),
+        h('div', { class: 'muted' }, {
+          windows: 'Die Datei liegt meist unter Program Files und braucht zum Speichern Administratorrechte.',
+          linux: 'Bei Steam liegt der Installationsordner unter steamapps/common/rocketleague in der Steam-Bibliothek, meist ~/.local/share/Steam.',
+          darwin: 'Der Installationsordner liegt in der Flasche von CrossOver oder Whisky unter drive_c.',
+        }[sys.os] || '')),
+      sys.save_key ? [
+        h('p', { class: 'muted' }, 'Kurz nach dem Anstoß drückt das Tool einmal die Taste, mit der das Spiel das Replay am Ende speichert (Standard: Rücktaste). Hast du sie im Spiel geändert, wähle hier dieselbe.'),
+        h('div', { class: 'row' }, keyCapture(settings.mark_key, code => run(() => api('/api/settings', { method: 'PUT', body: { mark_key: code } }), 'Gespeichert'))),
+        h('div', { style: { marginTop: '10px' } }, testKeyButton()),
+      ] : h('div', { style: { marginTop: '10px' } }, saveKeyMissing(sys)),
       nav(() => go(3)),
     ];
   }

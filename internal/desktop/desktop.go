@@ -1,15 +1,21 @@
-// Package desktop runs the tool in the background on Windows: notification
-// area icon, autostart at sign-in, a single running copy, message boxes and
-// file operations. Elsewhere most of it does nothing and the tool runs in
-// the terminal.
+// Package desktop runs the tool in the background: an icon in the
+// notification area (the menu bar on macOS), autostart at sign-in, a single
+// running copy, message boxes and file operations such as the recycle bin.
+// Each system gets its own implementation; where something is missing the
+// tool still runs and logs instead.
 package desktop
 
-import "strings"
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"runtime"
+	"strings"
+)
 
 // Tray is the notification area icon and its menu.
 type Tray struct {
 	Overlay     func() // left click and "Overlay öffnen"
-	Browser     func()
+	Browser     func() // "Im Browser öffnen"; nil where the overlay is the browser anyway
 	Settings    func()
 	TogglePause func()
 	Upload      func() // pick files and upload them
@@ -51,4 +57,14 @@ func tooltip(status string) string {
 		s = string(r[:126]) + "…"
 	}
 	return s
+}
+
+// instanceKey names the lock of one configuration. Paths differing only in
+// case are the same file on Windows and (by default) on macOS.
+func instanceKey(configPath string) string {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		configPath = strings.ToLower(configPath)
+	}
+	sum := sha1.Sum([]byte(configPath))
+	return "auto-replay-upload-" + hex.EncodeToString(sum[:6])
 }

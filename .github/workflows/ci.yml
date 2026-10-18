@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The Linux tests start their own X server and session bus for the
+      # hotkeys, the save key and the notifications.
+      - name: Install Xvfb and D-Bus
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb dbus
+
+      - run: go vet ./...
+
+      - run: go test ./...
+
+      - name: Build
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows)
+              go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/auto-replay-upload.exe ./cmd/auto-replay-upload ;;
+            macOS)
+              scripts/macos-app.sh
+              tar -czf dist/auto-replay-upload-macos.tar.gz -C dist auto-replay-upload.app ;;
+            Linux)
+              go build -trimpath -ldflags "-s -w" -o dist/auto-replay-upload ./cmd/auto-replay-upload
+              tar -czf dist/auto-replay-upload-linux.tar.gz -C dist auto-replay-upload ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: auto-replay-upload-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.tar.gz

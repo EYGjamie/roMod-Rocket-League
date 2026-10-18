@@ -1,5 +1,5 @@
 // Interface core: routing, navigation, status bar and live updates.
-import { api, h, on, emit, debounce, eventsURL, uploadFiles, run } from './lib.js';
+import { api, h, on, emit, debounce, eventsURL, uploadFiles, run, system } from './lib.js';
 import * as overview from './views/overview.js';
 import * as history from './views/history.js';
 import * as detail from './views/detail.js';
@@ -59,7 +59,7 @@ function renderStatus() {
   const paused = state.paused || {};
   const all = paused.watch && paused.mark;
   const any = paused.watch || paused.mark;
-  chips.push(h('button', { class: 'chip ' + (any ? 'warn' : 'ok'), title: 'Pausieren oder fortsetzen (Strg+Alt+P)',
+  chips.push(h('button', { class: 'chip ' + (any ? 'warn' : 'ok'), title: 'Pausieren oder fortsetzen' + (system(state).hotkeys ? ' (Strg+Alt+P)' : ''),
     onclick: () => run(() => api('/api/pause', { method: 'POST', body: { watch: !any, mark: !any } })) },
     h('span', { class: 'dot' }), all ? 'Pausiert' : paused.watch ? 'Uploads pausiert' : paused.mark ? 'Auto-Speichern pausiert' : 'Läuft'));
   document.getElementById('status').replaceChildren(...chips);

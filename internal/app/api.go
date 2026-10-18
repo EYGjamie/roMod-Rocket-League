@@ -160,6 +160,7 @@ func ok(w http.ResponseWriter) { writeJSON(w, http.StatusOK, map[string]bool{"ok
 
 type stateView struct {
 	Version   string       `json:"version"`
+	Platform  Platform     `json:"platform"`
 	SetupDone bool         `json:"setup_done"`
 	Account   accountView  `json:"account"`
 	StatsAPI  bool         `json:"stats_api"`
@@ -173,9 +174,11 @@ type stateView struct {
 }
 
 type accountView struct {
-	Status  string `json:"status"` // none, ok, invalid, offline
-	Name    string `json:"name"`
-	FromEnv bool   `json:"from_env"`
+	Status  string            `json:"status"` // none, ok, invalid, offline
+	Name    string            `json:"name"`
+	FromEnv bool              `json:"from_env"`
+	Tier    string            `json:"tier"`
+	Uploads ballchasing.Usage `json:"uploads_24h"`
 }
 
 type pausedView struct {
@@ -197,7 +200,7 @@ func (a *App) accountInfo() accountView {
 	if a.client == nil {
 		st = "none"
 	}
-	return accountView{Status: st, Name: a.me.Name, FromEnv: a.cfg.TokenFromEnv()}
+	return accountView{Status: st, Name: a.me.Name, FromEnv: a.cfg.TokenFromEnv(), Tier: a.me.Type, Uploads: a.me.Quota.Uploads}
 }
 
 func (a *App) queueSummary() queueSummary {
@@ -239,7 +242,7 @@ func (a *App) apiState(w http.ResponseWriter, r *http.Request) {
 		acc.Status = "invalid"
 	}
 	writeJSON(w, http.StatusOK, stateView{
-		Version: Version, SetupDone: a.config().SetupDone, Account: acc, StatsAPI: a.statsAPI.Load(),
+		Version: Version, Platform: a.desk.Platform(), SetupDone: a.config().SetupDone, Account: acc, StatsAPI: a.statsAPI.Load(),
 		InMatch: a.tracker.InMatch(), Paused: pausedView{watch, mark}, Queue: a.queueSummary(),
 		Inbox: len(a.inboxReplays()), RuleTips: len(tips), Syncing: a.Syncing(), Me: me,
 	})
@@ -383,14 +386,22 @@ func (a *App) apiOpenFolder(w http.ResponseWriter, r *http.Request) {
 	ok(w)
 }
 
-// OpenReplayFolder shows the first existing replay folder in Explorer.
+// OpenReplayFolder shows the first existing replay folder in the file
+// manager.
 func (a *App) OpenReplayFolder() {
+	if d := a.ReplayFolder(); d != "" {
+		a.desk.OpenFolder(d)
+	}
+}
+
+// ReplayFolder returns the first replay folder that exists, or "".
+func (a *App) ReplayFolder() string {
 	for _, d := range a.demoDirs() {
 		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			a.desk.OpenFolder(d)
-			return
+			return d
 		}
 	}
+	return ""
 }
 
 func (a *App) apiOpenLog(w http.ResponseWriter, r *http.Request) {

@@ -21,6 +21,7 @@ Markierungen: **[da]** gab es vor der Umsetzung schon, **[Umbau]** wurde erweite
 13. [Umsetzung in Etappen](#13-umsetzung-in-etappen)
 14. [Offene Punkte und Annahmen](#14-offene-punkte-und-annahmen)
 15. [Stand der Umsetzung](#15-stand-der-umsetzung)
+16. [macOS und Linux](#16-macos-und-linux)
 - [Anhang A: Felder eines Replays](#anhang-a-felder-eines-replays)
 - [Anhang B: Standard-Regeln](#anhang-b-standard-regeln)
 
@@ -30,9 +31,9 @@ Rocket-League-Replays landen ohne Zutun auf ballchasing.com, werden dort in Ordn
 
 Fester Rahmen, der sich aus Easy Anti-Cheat ergibt:
 
-- Das Tool greift nicht ins Spiel ein. Es liest die offizielle Stats API und den Replay-Ordner und sendet höchstens die Speichern-Taste über `SendInput`, und das nur, wenn Rocket League im Vordergrund ist.
+- Das Tool greift nicht ins Spiel ein. Es liest die offizielle Stats API und den Replay-Ordner und sendet höchstens die Speichern-Taste über `SendInput` (unter Linux über XTEST), und das nur, wenn Rocket League im Vordergrund ist.
 - Alles, was „im Spiel“ erscheint, ist ein eigenes Fenster über dem Spiel. Das funktioniert nur im Anzeigemodus „Randloses Fenster“.
-- Plattform ist Windows 10/11. Auf anderen Systemen bleibt es beim reinen Upload.
+- Hauptplattform ist Windows 10/11, wo das Spiel läuft. macOS und Linux werden ebenfalls unterstützt, mit den Unterschieden aus [Abschnitt 16](#16-macos-und-linux).
 
 ## 2. Getroffene Entscheidungen
 
@@ -409,16 +410,18 @@ Alle fünf Etappen sind umgesetzt, die Bedienung beschreibt die [README](../READ
 
 | Paket | Aufgabe |
 |---|---|
-| `cmd/auto-replay-upload` | Start: Log, eine Instanz pro Konfiguration, Autostart, Tray, Verdrahtung mit Windows |
+| `cmd/auto-replay-upload` | Start: Log, eine Instanz pro Konfiguration, Autostart, Tray, Verdrahtung mit dem System |
 | `internal/app` | Kern: Ablauf nach dem Upload, Abgleich, Sessions, Statistik, „Ins Spiel laden“, JSON-API und Live-Events der Oberfläche |
 | `internal/store` | SQLite-Datenbank `auto-replay-upload.db` (reines Go), Übernahme von `uploaded.json` |
 | `internal/upload` | Replay-Ordner beobachten, Warteschlange mit Zuständen und Neuversuchen |
 | `internal/rules` | Standard-Regeln, Regel-Abgleich, Ordner- und Regel-Vorschläge |
 | `internal/ballchasing` | API-Client mit Drosselung je Endpunkt; `ballchasingtest` ist ein nachgebauter Server für Tests |
-| `internal/game` | Stats API, Match-Erkennung, Speichern-Taste |
-| `internal/popup` | Schnell-Einordnen und Hinweisfenster (Win32, eigene Zeichnung) |
-| `internal/overlay` | Overlay-Fenster mit WebView2 |
-| `internal/desktop` | Tray, Autostart, Papierkorb, Dateiauswahl, Meldungsfenster |
+| `internal/game` | Stats API, Match-Erkennung, Speichern-Taste, Replay-Ordner je System |
+| `internal/popup` | Schnell-Einordnen und Hinweise: Win32 mit eigener Zeichnung, unter Linux Desktop-Benachrichtigungen, unter macOS die Mitteilungszentrale |
+| `internal/overlay` | Overlay-Fenster mit WebView2, außerhalb von Windows der Browser |
+| `internal/desktop` | Tray, Autostart, Papierkorb, Dateiauswahl, Meldungsfenster für Windows, macOS und Linux |
+| `internal/x11` | X-Server unter Linux (auch XWayland): aktives Fenster, Tastencodes, Tastendruck über XTEST |
+| `internal/assets` | das Programmsymbol |
 | `internal/web/ui` | die Oberfläche |
 | `cmd/uidemo` | die Oberfläche mit erfundenen Daten gegen den nachgebauten Server, zum Entwickeln ohne Konto |
 
@@ -447,6 +450,30 @@ Alle fünf Etappen sind umgesetzt, die Bedienung beschreibt die [README](../READ
 - Schnell-Einordnen und Overlay über Rocket League im randlosen Fenster.
 - „Ins Spiel laden“: ob das Spiel die Datei sofort zeigt oder erst nach erneutem Öffnen des Menüs, und ob das Aufräumen nach dem Verlassen zuverlässig greift.
 - Upload und Einordnen mit dem echten ballchasing-Konto über mehrere Matches.
+
+## 16. macOS und Linux
+
+Rocket League läuft dort nur unter Proton oder Wine. Das Tool läuft trotzdem vollständig: Hochladen, Abgleich, Regeln und die Oberfläche sind reines Go und Web und unterscheiden sich nicht. Anders ist nur, was das System dazu liefert. Was es kann, meldet das Programm der Oberfläche (`platform` in `/api/state`); sie blendet aus, was fehlt, und erklärt warum.
+
+| Thema | macOS | Linux |
+|---|---|---|
+| Symbol | Menüleiste über fyne systray (Cocoa, braucht cgo; ohne cgo gebaut kein Symbol); jeder Klick öffnet das Menü | StatusNotifierItem über D-Bus (reines Go); Linksklick öffnet die Oberfläche |
+| Oberfläche | im Browser, kein Overlay | im Browser, kein Overlay |
+| Autostart | LaunchAgent in `~/Library/LaunchAgents` | `.desktop`-Datei in `~/.config/autostart`; ein in den Desktop-Einstellungen abgeschalteter Eintrag (`Hidden`, `X-GNOME-Autostart-enabled`) bleibt aus |
+| Eine Instanz | `flock` auf eine Sperrdatei in `$TMPDIR` | `flock` auf eine Sperrdatei in `$XDG_RUNTIME_DIR` |
+| Papierkorb | der Befehl `/usr/bin/trash` neuerer macOS-Versionen, sonst `~/.Trash` bzw. `.Trashes` des Laufwerks, zuletzt der Finder | freedesktop.org-Papierkorb mit `.trashinfo`, für andere Laufwerke `.Trash-<uid>` an deren Wurzel |
+| Replay-Ordner | Flaschen von CrossOver und Whisky, Präfixe von Heroic, `~/.wine`, die alte Mac-Version | Proton-Präfix der App 252950 in jeder Steam-Bibliothek (`libraryfolders.vdf`, auch Flatpak und Snap), Präfixe von Heroic, Lutris, Bottles, `~/.wine`, die alte Linux-Version |
+| Speichern-Taste | nicht gesendet: macOS erlaubt das nur mit Bedienungshilfen-Rechten und nativem Code. Der Warnton am Matchende erinnert ans Speichern | XTEST mit der physischen Taste (Linux-Eingabecode + 8, passend zu `KeyboardEvent.code`), nur wenn das aktive Fenster das Spiel ist (`WM_CLASS` `steam_app_252950` bzw. `rocketleague.exe` oder Prozess) |
+| Hotkeys | keine | `XGrabKey` am Wurzelfenster, unabhängig von Feststell- und Num-Taste, Tastenwiederholung gefiltert |
+| Hinweise | `display notification` über osascript, ohne Knöpfe | `org.freedesktop.Notifications` mit Knöpfen und Programmsymbol |
+| Schnell-Einordnen | entfällt, Regeln ordnen direkt ein | Benachrichtigung mit bis zu drei Knöpfen (zwei Alternativen und Eingang), dazu Strg+Alt+1–4 |
+| Dateiauswahl, Meldungen | AppleScript (`choose file`, `display alert`) | Datei-Portal von xdg-desktop-portal, sonst zenity oder kdialog |
+| Token | in der `config.json` mit Rechten nur für den Benutzer | wie macOS |
+| Konfiguration | `~/Library/Application Support/auto-replay-upload` | `~/.config/auto-replay-upload` |
+
+Unter Wayland laufen Proton-Spiele über XWayland. Hotkeys und Speichern-Taste wirken dann, solange ein X11-Fenster im Vordergrund ist, also beim Spielen. Strg+Alt+F1 bis F12 schaltet unter Linux die Konsole um und taugt nicht als Hotkey.
+
+**Geprüft** unter Linux mit eigenem X-Server (Xvfb) und D-Bus: Hotkeys mit und ohne Num-Taste, Belegung durch ein anderes Programm, die Speichern-Taste nur im Spielfenster, alle Tastencodes, Benachrichtigungen mit Knöpfen gegen einen nachgebauten Dienst, Papierkorb auch auf einem zweiten Laufwerk, Autostart, eine Instanz, und das echte Programm mit nachgebautem Infobereich (Menü, Tooltip, Pausieren, Beenden). macOS prüft die CI (Bauen mit cgo und die Tests).
 
 ## Anhang A: Felder eines Replays
 

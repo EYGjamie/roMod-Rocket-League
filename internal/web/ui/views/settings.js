@@ -1,4 +1,4 @@
-import { api, h, fill, run, flash, sw, debounce, confirmDialog, visibilityNames } from '../lib.js';
+import { api, h, fill, run, flash, sw, debounce, confirmDialog, visibilityNames, system, tierNames, uploadQuota } from '../lib.js';
 
 export const title = 'Einstellungen';
 
@@ -36,7 +36,8 @@ export function keyCapture(current, onChange) {
 }
 
 // hotkeyCapture records a combination like Ctrl+Alt+B; Entf clears it.
-export function hotkeyCapture(current, onChange) {
+// meta names the Windows key: Win, or Super on Linux.
+export function hotkeyCapture(current, onChange, meta = 'Win') {
   let value = current;
   let listening = false;
   const btn = h('button', { class: 'keycap' });
@@ -52,8 +53,8 @@ export function hotkeyCapture(current, onChange) {
     else if (e.code.startsWith('Digit')) key = e.code.slice(5);
     else if (/^F\d{1,2}$/.test(e.code)) key = e.code;
     if (!key) return; // a modifier alone, wait for the key
-    const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Win'].filter(Boolean);
-    if (!mods.length && !key.startsWith('F')) { flash('Bitte mit Strg, Alt, Umschalt oder Win kombinieren', 'err'); return; }
+    const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && meta].filter(Boolean);
+    if (!mods.length && !key.startsWith('F')) { flash(`Bitte mit Strg, Alt, Umschalt oder ${meta} kombinieren`, 'err'); return; }
     stop();
     value = [...mods, key].join('+');
     onChange(value);
@@ -87,8 +88,9 @@ export function testKeyButton() {
   return h('span', { class: 'row' }, btn, out);
 }
 
-// tokenForm connects to ballchasing; onDone receives the account.
-export function tokenForm(onDone) {
+// tokenForm connects to ballchasing; onDone receives the account. Only
+// Windows encrypts the token (DPAPI); elsewhere the file permissions guard it.
+export function tokenForm(onDone, sys) {
   const input = h('input', { type: 'password', placeholder: 'Upload-Token von ballchasing.com/upload', style: { flex: '1 1 280px' }, autocomplete: 'off',
     onkeydown: e => { if (e.key === 'Enter') connect(); } });
   const reveal = h('button', { class: 'ghost small', onclick: () => { input.type = input.type === 'password' ? 'text' : 'password'; reveal.textContent = input.type === 'password' ? 'Anzeigen' : 'Verbergen'; } }, 'Anzeigen');
@@ -112,7 +114,7 @@ export function tokenForm(onDone) {
   }
   return h('div', { class: 'stack' }, h('div', { class: 'row' }, input, reveal, btn), msg,
     h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Den Token findest du auf ', h('a', { href: 'https://ballchasing.com/upload', target: '_blank', rel: 'noopener noreferrer' }, 'ballchasing.com/upload'),
-      ' (nach dem Anmelden mit Steam). Er wird verschlüsselt gespeichert.'));
+      ' (nach dem Anmelden mit Steam). ', sys?.windows === false ? 'Er wird in der Konfiguration gespeichert, die nur dein Benutzer lesen kann.' : 'Er wird verschlüsselt gespeichert.'));
 }
 
 // identityEditor shows and edits the user's player accounts.
@@ -143,7 +145,16 @@ export async function identityEditor(onChange) {
   return box;
 }
 
+// saveKeyMissing explains why the save key is not pressed on this system.
+export function saveKeyMissing(sys) {
+  return h('div', { class: 'banner info' }, sys.mac
+    ? 'Auf dem Mac drückt das Tool die Speichern-Taste nicht (macOS erlaubt das nur mit Bedienungshilfen-Rechten). '
+    : 'Ohne X11 oder XWayland kann das Tool die Speichern-Taste nicht drücken. ',
+  'Am Matchende ertönt ein Hinweiston: dann im Spiel „Replay speichern“ wählen, hochgeladen wird trotzdem automatisch.');
+}
+
 export async function mount(root, ctx) {
+  const sys = system(ctx.state);
   let s = await api('/api/settings');
   const save = async patch => {
     try {
@@ -160,8 +171,10 @@ export async function mount(root, ctx) {
 
   async function render() {
     const acc = s.account;
+    const quota = uploadQuota(acc);
     const custom = s.demo_dirs.length > 0;
-    const newDir = h('input', { type: 'text', placeholder: 'Ordner hinzufügen, z. B. D:\\Replays', style: { flex: '1' } });
+    const newDir = h('input', { type: 'text', placeholder: 'Ordner hinzufügen, z. B. ' + (sys.windows ? 'D:\\Replays' : '~/Replays'), style: { flex: '1' } });
+    const found = { windows: 'Steam und Epic', linux: 'Steam mit Proton, Heroic, Lutris, Bottles', darwin: 'CrossOver, Whisky, Heroic' }[sys.os] || 'Steam und Epic';
     fill(root, 
       acc.status === 'none' ? h('div', { class: 'banner warn' }, 'Noch nicht mit ballchasing verbunden – ohne Token wird nichts hochgeladen.') : null,
       card('ballchasing',
@@ -176,12 +189,15 @@ export async function mount(root, ctx) {
                 render();
               }
             } }, 'Trennen') : null)),
-        setting(acc.status === 'none' ? 'Token eintragen' : 'Token ändern', null, tokenForm(async () => { s = await api('/api/settings'); render(); })),
+        acc.status === 'ok' && acc.tier ? setting('Konto', 'Die Patreon-Stufe bestimmt die Limits von ballchasing.',
+          h('span', null, tierNames[acc.tier] || acc.tier, quota ? ` · ${quota.text} Uploads in 24 Stunden` : '')) : null,
+        setting(acc.status === 'none' ? 'Token eintragen' : 'Token ändern', null, tokenForm(async () => { s = await api('/api/settings'); render(); }, sys)),
         setting('Standard-Sichtbarkeit', 'Für neue Uploads.', h('select', { onchange: e => save({ visibility: e.target.value }) },
           Object.entries(visibilityNames).map(([v, label]) => h('option', { value: v, selected: s.visibility === v }, label))))),
       card('Replays',
-        setting('Replay-Ordner', custom ? 'Eigene Auswahl' : 'Automatisch erkannt (Steam und Epic)',
+        setting('Replay-Ordner', custom ? 'Eigene Auswahl' : `Automatisch erkannt (${found})`,
           h('div', { class: 'stack' },
+            s.dirs.length ? null : h('div', { class: 'muted' }, 'Keiner gefunden. Bitte den Ordner TAGame/Demos des Spiels hinzufügen.'),
             s.dirs.map(d => h('div', { class: 'row nowrap' },
               h('span', { class: 'grow ellipsis', title: d.path }, d.path),
               h('span', { class: 'muted nowrap' }, d.exists ? d.replays + ' Replays' : 'fehlt'),
@@ -195,30 +211,40 @@ export async function mount(root, ctx) {
         setting('Replays nach dem Upload löschen', 'Verschiebt die Datei in den Papierkorb, sobald ballchasing sie verarbeitet hat. Nur eigene Uploads aus dem Replay-Ordner. Zum Anschauen im Spiel lassen sie sich über „Ins Spiel laden“ wieder holen.',
           sw(s.delete_after_upload, v => save({ delete_after_upload: v })))),
       card('Spiel',
-        setting('Replays automatisch speichern', 'Drückt kurz nach dem ersten Anstoß einmal die Speichern-Taste.', sw(s.auto_mark, v => save({ auto_mark: v }))),
+        sys.save_key ? null : saveKeyMissing(sys),
+        sys.save_key ? setting('Replays automatisch speichern', 'Drückt kurz nach dem ersten Anstoß einmal die Speichern-Taste.', sw(s.auto_mark, v => save({ auto_mark: v }))) : null,
         setting('Nur bei Online-Spielen', 'Offline-Spiele und Training werden ignoriert.', sw(s.online_only, v => save({ online_only: v }))),
-        setting('Speichern-Taste', 'Die Taste, die im Spiel unter Steuerung fürs Replay-Speichern eingestellt ist. Gesendet wird sie immer nur, wenn Rocket League im Vordergrund ist.',
-          h('div', { class: 'stack' }, keyCapture(s.mark_key, code => save({ mark_key: code })), testKeyButton())),
-        setting('Haltedauer', 'Wie lange die Taste gedrückt wird, in Millisekunden.',
-          h('input', { type: 'number', min: 100, max: 5000, step: 100, value: s.mark_hold_ms, onchange: e => save({ mark_hold_ms: Number(e.target.value) }) })),
+        sys.save_key ? setting('Speichern-Taste', 'Die Taste, die im Spiel unter Steuerung fürs Replay-Speichern eingestellt ist. Gesendet wird sie immer nur, wenn Rocket League im Vordergrund ist.',
+          h('div', { class: 'stack' }, keyCapture(s.mark_key, code => save({ mark_key: code })), testKeyButton())) : null,
+        sys.save_key ? setting('Haltedauer', 'Wie lange die Taste gedrückt wird, in Millisekunden.',
+          h('input', { type: 'number', min: 100, max: 5000, step: 100, value: s.mark_hold_ms, onchange: e => save({ mark_hold_ms: Number(e.target.value) }) })) : null,
         setting('Stats-API-Adresse', 'Muss zum Port in der TAStatsAPI.ini passen.',
           h('input', { type: 'text', value: s.stats_api_addr, onchange: e => save({ stats_api_addr: e.target.value.trim() }) }))),
       card('Dein Spieler', h('div', { class: 'muted', style: { margin: '4px 0 10px' } }, 'Damit erkennt das Tool Sieg und Niederlage und hebt dich in Statistiken hervor. Mehrere Accounts (z. B. Steam und Epic) sind möglich.'),
         await identityEditor()),
-      card('Hotkeys',
-        setting('Overlay öffnen und schließen', null, hotkeyCapture(s.gui_hotkey, v => save({ gui_hotkey: v }))),
-        setting('Pausieren und fortsetzen', 'Pausiert Uploads und Auto-Speichern zusammen.', hotkeyCapture(s.pause_hotkey, v => save({ pause_hotkey: v }))),
-        setting('Schnell-Einordnen', 'Während das Fenster über dem Spiel sichtbar ist.', h('span', null, h('kbd', null, 'Strg+Alt+1'), ' bis ', h('kbd', null, 'Strg+Alt+4')))),
+      sys.hotkeys ? card('Hotkeys',
+        sys.linux ? h('div', { class: 'muted', style: { margin: '4px 0 10px' } }, 'Unter Wayland wirken sie nur, solange ein X11-Fenster wie das Spiel im Vordergrund ist. Strg+Alt+F1 bis F12 wechselt unter Linux die Konsole.') : null,
+        setting(sys.overlay ? 'Overlay öffnen und schließen' : 'Oberfläche öffnen', null, hotkeyCapture(s.gui_hotkey, v => save({ gui_hotkey: v }), sys.linux ? 'Super' : 'Win')),
+        setting('Pausieren und fortsetzen', 'Pausiert Uploads und Auto-Speichern zusammen.', hotkeyCapture(s.pause_hotkey, v => save({ pause_hotkey: v }), sys.linux ? 'Super' : 'Win')),
+        sys.quick_sort ? setting('Schnell-Einordnen', sys.overlay ? 'Während das Fenster über dem Spiel sichtbar ist.' : 'Während die Benachrichtigung zum Einordnen sichtbar ist.',
+          h('span', null, h('kbd', null, 'Strg+Alt+1'), ' bis ', h('kbd', null, 'Strg+Alt+4'))) : null)
+        : card('Hotkeys', h('div', { class: 'muted', style: { marginTop: '4px' } }, sys.mac
+          ? 'Systemweite Hotkeys gibt es auf dem Mac nicht. Pausieren und die Oberfläche erreichst du über das Symbol in der Menüleiste.'
+          : 'Systemweite Hotkeys brauchen eine X11-Sitzung oder XWayland. Pausieren und die Oberfläche erreichst du über das Symbol im Infobereich.')),
       card('Benachrichtigungen',
         setting('Upload erfolgreich', null, sw(s.notify_uploaded, v => save({ notify_uploaded: v }))),
         setting('Upload fehlgeschlagen', null, sw(s.notify_failed, v => save({ notify_failed: v }))),
         setting('Session beendet', 'Nach 30 Minuten ohne Spiel oder wenn Rocket League geschlossen wird.', sw(s.notify_session, v => save({ notify_session: v }))),
-        setting('Schnell-Einordnen über dem Spiel', 'Zeigt nach dem Upload den Zielordner mit Countdown. Aus: Regeln ordnen ohne Rückfrage ein.', sw(s.quick_sort, v => save({ quick_sort: v }))),
-        setting('Countdown', 'Sekunden bis der Regel-Ordner gilt.',
-          h('input', { type: 'number', min: 3, max: 60, value: s.quick_sort_seconds, onchange: e => save({ quick_sort_seconds: Number(e.target.value) }) }))),
+        sys.quick_sort ? setting(sys.overlay ? 'Schnell-Einordnen über dem Spiel' : 'Schnell-Einordnen',
+          (sys.overlay ? 'Zeigt nach dem Upload den Zielordner mit Countdown.' : 'Zeigt nach dem Upload eine Benachrichtigung mit Zielordner und Alternativen.') + ' Aus: Regeln ordnen ohne Rückfrage ein.',
+          sw(s.quick_sort, v => save({ quick_sort: v }))) : h('div', { class: 'muted', style: { margin: '8px 0' } }, 'Regeln ordnen ohne Rückfrage ein: Benachrichtigungen haben hier keine Knöpfe für eine andere Wahl.'),
+        sys.quick_sort ? setting('Countdown', 'Sekunden bis der Regel-Ordner gilt.',
+          h('input', { type: 'number', min: 3, max: 60, value: s.quick_sort_seconds, onchange: e => save({ quick_sort_seconds: Number(e.target.value) }) })) : null),
       card('Start',
-        setting('Mit Windows starten', null, sw(s.autostart, v => run(() => api('/api/autostart', { method: 'POST', body: { on: v } }), v ? 'Startet mit Windows' : 'Startet nicht mehr mit Windows'))),
-        setting('Minimiert starten', 'Beim Start nur das Symbol im Infobereich zeigen, das Overlay bleibt zu.', sw(s.start_minimized, v => save({ start_minimized: v })))),
+        sys.autostart ? setting(sys.windows ? 'Mit Windows starten' : 'Bei der Anmeldung starten', sys.mac ? 'Erscheint in den Systemeinstellungen unter Allgemein → Anmeldeobjekte.' : null,
+          sw(s.autostart, v => run(() => api('/api/autostart', { method: 'POST', body: { on: v } }), v ? 'Startet ' + (sys.windows ? 'mit Windows' : 'bei der Anmeldung') : 'Startet nicht mehr ' + (sys.windows ? 'mit Windows' : 'bei der Anmeldung')))) : null,
+        setting('Minimiert starten', (sys.tray ? `Beim Start nur das Symbol ${sys.mac ? 'in der Menüleiste' : 'im Infobereich'} zeigen, ` : 'Beim Start ') +
+          (sys.overlay ? 'das Overlay bleibt zu.' : 'die Oberfläche öffnet sich nicht im Browser.'), sw(s.start_minimized, v => save({ start_minimized: v })))),
       card('Erweitert',
         setting('Log', s.log_path, h('button', { onclick: () => run(() => api('/api/open-log', { method: 'POST' })) }, 'Log anzeigen')),
         setting('Einrichtung', 'Den Assistenten noch einmal durchlaufen.', h('a', { class: 'btn', href: '#/einrichtung' }, 'Assistent öffnen'))));
