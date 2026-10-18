@@ -174,6 +174,19 @@ func (b *Client) call(ctx context.Context, endpoint, method, u string, in, out a
 type Me struct {
 	Name    string `json:"name"`
 	SteamID string `json:"steam_id"`
+	Type    string `json:"type"` // patron tier: regular, gold, diamond, champion, gc
+	Quota   Quota  `json:"quota"`
+}
+
+// Quota is what the account may still do.
+type Quota struct {
+	Uploads Usage `json:"uploads_in_24h"`
+}
+
+// Usage counts calls in a window. Max 0 means ballchasing sent no limit.
+type Usage struct {
+	Used int `json:"used"`
+	Max  int `json:"max"`
 }
 
 // Ping checks the token and returns the account.

@@ -1,4 +1,4 @@
-import { api, h, fill, run, flash, sw, debounce, confirmDialog, visibilityNames, system } from '../lib.js';
+import { api, h, fill, run, flash, sw, debounce, confirmDialog, visibilityNames, system, tierNames, uploadQuota } from '../lib.js';
 
 export const title = 'Einstellungen';
 
@@ -171,6 +171,7 @@ export async function mount(root, ctx) {
 
   async function render() {
     const acc = s.account;
+    const quota = uploadQuota(acc);
     const custom = s.demo_dirs.length > 0;
     const newDir = h('input', { type: 'text', placeholder: 'Ordner hinzufügen, z. B. ' + (sys.windows ? 'D:\\Replays' : '~/Replays'), style: { flex: '1' } });
     const found = { windows: 'Steam und Epic', linux: 'Steam mit Proton, Heroic, Lutris, Bottles', darwin: 'CrossOver, Whisky, Heroic' }[sys.os] || 'Steam und Epic';
@@ -188,6 +189,8 @@ export async function mount(root, ctx) {
                 render();
               }
             } }, 'Trennen') : null)),
+        acc.status === 'ok' && acc.tier ? setting('Konto', 'Die Patreon-Stufe bestimmt die Limits von ballchasing.',
+          h('span', null, tierNames[acc.tier] || acc.tier, quota ? ` · ${quota.text} Uploads in 24 Stunden` : '')) : null,
         setting(acc.status === 'none' ? 'Token eintragen' : 'Token ändern', null, tokenForm(async () => { s = await api('/api/settings'); render(); }, sys)),
         setting('Standard-Sichtbarkeit', 'Für neue Uploads.', h('select', { onchange: e => save({ visibility: e.target.value }) },
           Object.entries(visibilityNames).map(([v, label]) => h('option', { value: v, selected: s.visibility === v }, label))))),

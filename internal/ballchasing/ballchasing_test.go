@@ -82,7 +82,7 @@ func TestPing(t *testing.T) {
 	bc := ballchasingtest.New(t).API()
 	ctx := context.Background()
 
-	if me, err := bc.Ping(ctx); err != nil || me.Name != "Jamie" || me.SteamID == "" {
+	if me, err := bc.Ping(ctx); err != nil || me.Name != "Jamie" || me.SteamID == "" || me.Type != "regular" || me.Quota.Uploads.Max != 10 {
 		t.Errorf("Ping() = %+v, %v", me, err)
 	}
 	bc.Token = "falsch"

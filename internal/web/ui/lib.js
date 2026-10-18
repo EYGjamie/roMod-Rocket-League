@@ -89,6 +89,17 @@ export const fmt = {
 
 export const visibilityNames = { public: 'Öffentlich', unlisted: 'Nicht gelistet', private: 'Privat' };
 
+// tierNames are the patron tiers of ballchasing.
+export const tierNames = { regular: 'ohne Patreon', gold: 'Gold', diamond: 'Diamond', champion: 'Champion', gc: 'Grand Champion' };
+
+// uploadQuota is the 24-hour upload count of an account, or null when
+// ballchasing sent no limit.
+export function uploadQuota(acc) {
+  const q = acc?.uploads_24h;
+  if (acc?.status !== 'ok' || !q?.max) return null;
+  return { text: `${q.used} von ${q.max}`, full: q.used >= q.max };
+}
+
 // system describes the operating system the tool runs on, from the state's
 // platform: what it offers and how to word things there.
 export function system(state) {

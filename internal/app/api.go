@@ -174,9 +174,11 @@ type stateView struct {
 }
 
 type accountView struct {
-	Status  string `json:"status"` // none, ok, invalid, offline
-	Name    string `json:"name"`
-	FromEnv bool   `json:"from_env"`
+	Status  string            `json:"status"` // none, ok, invalid, offline
+	Name    string            `json:"name"`
+	FromEnv bool              `json:"from_env"`
+	Tier    string            `json:"tier"`
+	Uploads ballchasing.Usage `json:"uploads_24h"`
 }
 
 type pausedView struct {
@@ -198,7 +200,7 @@ func (a *App) accountInfo() accountView {
 	if a.client == nil {
 		st = "none"
 	}
-	return accountView{Status: st, Name: a.me.Name, FromEnv: a.cfg.TokenFromEnv()}
+	return accountView{Status: st, Name: a.me.Name, FromEnv: a.cfg.TokenFromEnv(), Tier: a.me.Type, Uploads: a.me.Quota.Uploads}
 }
 
 func (a *App) queueSummary() queueSummary {

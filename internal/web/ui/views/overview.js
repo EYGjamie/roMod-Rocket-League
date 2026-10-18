@@ -1,4 +1,4 @@
-import { api, h, fill, fmt, run, debounce, stateNames, sw, replayRow, uploadFiles, system } from '../lib.js';
+import { api, h, fill, fmt, run, debounce, stateNames, sw, replayRow, uploadFiles, system, uploadQuota } from '../lib.js';
 
 export const title = 'Übersicht';
 
@@ -16,18 +16,22 @@ export async function mount(root, ctx) {
     const sys = system(s);
     const acc = s.account || {};
     const paused = s.paused || {};
+    const quota = uploadQuota(acc);
     const toggle = (key, value) => run(() => api('/api/pause', { method: 'POST', body: { [key]: !value } }));
     fill(banners, 
       acc.status === 'none' ? h('div', { class: 'banner warn' }, 'Noch nicht mit ballchasing verbunden. ',
         h('a', { href: '#/einrichtung' }, 'Jetzt einrichten')) : null,
       acc.status === 'invalid' || s.queue?.bad_token ? h('div', { class: 'banner bad' }, 'Der ballchasing-Token ist ungültig, Uploads warten. ',
         h('a', { href: '#/einstellungen' }, 'Neuen Token eintragen')) : null,
-      s.queue?.offline ? h('div', { class: 'banner warn' }, 'ballchasing ist gerade nicht erreichbar. Uploads werden automatisch nachgeholt.') : null);
+      s.queue?.offline ? h('div', { class: 'banner warn' }, 'ballchasing ist gerade nicht erreichbar. Uploads werden automatisch nachgeholt.') : null,
+      quota?.full ? h('div', { class: 'banner warn' }, `Das Upload-Kontingent von ballchasing für 24 Stunden ist aufgebraucht (${quota.text}).`) : null);
     fill(status, 
       h('div', { class: 'card-head' }, h('h2', null, 'Status')),
       h('div', { class: 'stack' },
         h('div', { class: 'row' }, h('span', { class: 'grow' }, 'ballchasing'),
           h('span', { class: acc.status === 'ok' ? '' : 'muted' }, acc.status === 'ok' ? 'angemeldet als ' + acc.name : { none: 'nicht verbunden', invalid: 'Token ungültig', offline: 'nicht erreichbar' }[acc.status] || '…')),
+        quota ? h('div', { class: 'row' }, h('span', { class: 'grow' }, 'Uploads in 24 Stunden'),
+          h('span', { class: 'num' + (quota.full ? '' : ' muted') }, quota.text)) : null,
         h('div', { class: 'row' }, h('span', { class: 'grow' }, 'Rocket League'),
           h('span', { class: s.stats_api ? '' : 'muted' }, s.in_match ? 'im Match' : s.stats_api ? 'verbunden' : 'nicht verbunden')),
         h('hr', { class: 'sep' }),

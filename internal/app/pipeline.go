@@ -22,6 +22,7 @@ func (a *App) processed(ctx context.Context, f store.File, r ballchasing.Replay,
 	rep := store.FromAPI(r, me.SteamID)
 	if !duplicate {
 		rep.Own = true // a 201 is always our own upload
+		a.countUpload()
 	}
 	if rep.Own {
 		rep.File = f.Name

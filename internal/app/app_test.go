@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
 	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing/ballchasingtest"
 	"github.com/EYGjamie/auto-replay-upload/internal/config"
 	"github.com/EYGjamie/auto-replay-upload/internal/rules"
@@ -234,6 +235,9 @@ func TestDeleteAfterUploadAndQuickSortOff(t *testing.T) {
 	ta.waitFor("manual upload", func() bool { return ta.fileState("private_m.replay").State == store.Done })
 	if _, err := os.Stat(manual); err != nil {
 		t.Error("a file picked by hand was deleted")
+	}
+	if acc := ta.accountInfo(); acc.Tier != "regular" || acc.Uploads != (ballchasing.Usage{Used: 2, Max: 10}) {
+		t.Errorf("account after two uploads = %+v", acc)
 	}
 }
 

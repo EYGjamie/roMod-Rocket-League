@@ -496,6 +496,15 @@ func (a *App) ping(ctx context.Context) {
 	a.events.publish("state")
 }
 
+// countUpload adds a new upload to the 24-hour quota until the next ping
+// brings the real count.
+func (a *App) countUpload() {
+	a.mu.Lock()
+	a.me.Quota.Uploads.Used++
+	a.mu.Unlock()
+	a.events.publish("state")
+}
+
 // myIDs returns the user's player IDs.
 func (a *App) myIDs() map[string]bool {
 	ids, _ := a.store.Identities()
