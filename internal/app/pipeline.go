@@ -26,12 +26,13 @@ func (a *App) processed(ctx context.Context, f store.File, r ballchasing.Replay,
 	if rep.Own {
 		rep.File = f.Name
 	}
+	old, _, _ := a.store.Replay(rep.ID)
 	if err := a.store.PutDetail(rep, raw); err != nil {
 		log.Printf("Replay speichern: %v", err)
 		return
 	}
 	a.ensureIdentities()
-	a.dedupe()
+	a.dedupeAfter(old, rep.ID)
 	a.mu.Lock()
 	a.lastGame = a.now()
 	a.mu.Unlock()

@@ -237,7 +237,18 @@ func (s *Store) Replay(id string) (Replay, bool, error) {
 
 // Replays returns all replays, newest game first.
 func (s *Store) Replays() ([]Replay, error) {
-	rows, err := s.db.Query("SELECT " + replayCols + " FROM replays ORDER BY date DESC, id")
+	return s.queryReplays("SELECT " + replayCols + " FROM replays ORDER BY date DESC, id")
+}
+
+// ReplaysWithScore returns the replays on one map with one final score, in
+// the same order as Replays.
+func (s *Store) ReplaysWithScore(mapCode string, blue, orange int) ([]Replay, error) {
+	return s.queryReplays("SELECT "+replayCols+" FROM replays WHERE map_code = ? AND blue_goals = ? AND orange_goals = ? ORDER BY date DESC, id",
+		mapCode, blue, orange)
+}
+
+func (s *Store) queryReplays(query string, args ...any) ([]Replay, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
