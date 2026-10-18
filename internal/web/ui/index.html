@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>auto-replay-upload</title>
+<link rel="stylesheet" href="/assets/app.css">
+<script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+<div id="app">
+  <nav id="nav" aria-label="Bereiche">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span>auto-replay-upload</span>
+    </div>
+    <a href="#/uebersicht" data-route="uebersicht"><span class="ico ico-home"></span><span>Übersicht</span><span class="badge" data-badge="failed" hidden></span></a>
+    <a href="#/verlauf" data-route="verlauf"><span class="ico ico-list"></span><span>Verlauf</span></a>
+    <a href="#/statistik" data-route="statistik"><span class="ico ico-chart"></span><span>Statistik</span></a>
+    <a href="#/ordner" data-route="ordner"><span class="ico ico-folder"></span><span>Ordner</span></a>
+    <a href="#/eingang" data-route="eingang"><span class="ico ico-inbox"></span><span>Eingang</span><span class="badge muted" data-badge="inbox" hidden></span></a>
+    <a href="#/regeln" data-route="regeln"><span class="ico ico-rules"></span><span>Regeln</span><span class="badge muted" data-badge="rules" hidden></span></a>
+    <a href="#/einstellungen" data-route="einstellungen"><span class="ico ico-gear"></span><span>Einstellungen</span><span class="badge warn" data-badge="setup" hidden>!</span></a>
+    <div class="nav-foot" id="nav-foot"></div>
+  </nav>
+  <div id="main">
+    <header id="top">
+      <h1 id="title"></h1>
+      <div id="status" class="status"></div>
+      <button id="close" class="icon-btn" hidden aria-label="Overlay schließen" title="Schließen (Esc)">✕</button>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="flash" role="status" aria-live="polite"></div>
+<div id="drop" hidden><div>Replays hier ablegen zum Hochladen</div></div>
+</body>
+</html>
