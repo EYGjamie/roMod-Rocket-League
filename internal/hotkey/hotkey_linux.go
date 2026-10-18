@@ -91,6 +91,13 @@ func (m *Manager) Set(name string, hk Hotkey, pressed func()) error {
 		return errors.New("die Taste gibt es auf dieser Tastatur nicht")
 	}
 	g := grab{code: code, mods: xMods(hk.mods), pressed: pressed}
+	for _, other := range m.grabs {
+		if other.code == g.code && other.mods == g.mods {
+			// X would hand out the same grab twice, and removing one would
+			// remove both; RegisterHotKey refuses as well.
+			return errors.New("schon für etwas anderes vergeben")
+		}
+	}
 	for i, extra := range m.ignore {
 		err := xproto.GrabKeyChecked(m.c.X, true, m.c.Root, g.mods|extra, code, xproto.GrabModeAsync, xproto.GrabModeAsync).Check()
 		if err != nil {

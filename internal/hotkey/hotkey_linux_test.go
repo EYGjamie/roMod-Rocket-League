@@ -83,6 +83,10 @@ func TestX11Hotkeys(t *testing.T) {
 	expect("overlay")
 	tap(numLock)
 
+	same, _ := Parse("Ctrl+Alt+B")
+	if err := m.Set("quick1", same, func() {}); err == nil {
+		t.Error("the overlay's combination was bound a second time")
+	}
 	m.Remove("overlay")
 	tap(ctrl, alt, code('b'))
 	expect("")
