@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/EYGjamie/auto-replay-upload/internal/app"
@@ -26,7 +27,9 @@ type cleanup struct{ fns []func() }
 func (c *cleanup) Errorf(format string, args ...any) { log.Printf("fake: "+format, args...) }
 func (c *cleanup) Cleanup(f func())                  { c.fns = append(c.fns, f) }
 
-type demoDesktop struct{}
+// demoDesktop logs what would happen; platform says what the interface
+// shows, e.g. the texts for macOS with -os darwin.
+type demoDesktop struct{ platform app.Platform }
 
 func (demoDesktop) ShowOverlay(route string) { log.Printf("[Overlay] %s", route) }
 func (demoDesktop) ToggleOverlay()           {}
@@ -44,10 +47,27 @@ func (demoDesktop) Edit(string) error         { return nil }
 func (demoDesktop) PickFiles() []string       { return nil }
 func (demoDesktop) SetAutostart(bool) error   { return nil }
 func (demoDesktop) Autostart() bool           { return true }
+func (d demoDesktop) Platform() app.Platform  { return d.platform }
+
+// platforms are what each system offers in a usual setup.
+var platforms = map[string]app.Platform{
+	"windows": {OS: "windows", Overlay: true, Tray: true, Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: true},
+	"linux":   {OS: "linux", Tray: true, Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: true},
+	"darwin":  {OS: "darwin", Tray: true, Autostart: true},
+}
 
 func main() {
 	setup := flag.Bool("setup", false, "mit dem Einrichtungsassistenten starten")
+	def := runtime.GOOS
+	if _, ok := platforms[def]; !ok {
+		def = "linux"
+	}
+	system := flag.String("os", def, "Oberfläche wie auf diesem System: windows, darwin oder linux")
 	flag.Parse()
+	platform, ok := platforms[*system]
+	if !ok {
+		log.Fatalf("-os %q unbekannt, erlaubt: windows, darwin, linux", *system)
+	}
 
 	var c cleanup
 	defer func() {
@@ -83,7 +103,7 @@ func main() {
 	cfgPath := filepath.Join(dir, "config.json")
 	config.Save(cfgPath, cfg)
 
-	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: filepath.Join(dir, "log.txt"), Desktop: demoDesktop{},
+	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: filepath.Join(dir, "log.txt"), Desktop: demoDesktop{platform},
 		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true})
 	if err != nil {
 		log.Fatal(err)

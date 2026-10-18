@@ -27,6 +27,7 @@ type fakeDesk struct {
 	recycled  []string
 	overlay   []string
 	autostart bool
+	quickSort bool // the prompt takes a choice
 }
 
 func (d *fakeDesk) ShowOverlay(route string) {
@@ -51,6 +52,11 @@ func (d *fakeDesk) Edit(string) error          { return nil }
 func (d *fakeDesk) PickFiles() []string        { return nil }
 func (d *fakeDesk) Autostart() bool            { return d.autostart }
 func (d *fakeDesk) SetAutostart(on bool) error { d.autostart = on; return nil }
+func (d *fakeDesk) Platform() Platform {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return Platform{OS: "test", Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: d.quickSort}
+}
 func (d *fakeDesk) Recycle(path string) error {
 	d.mu.Lock()
 	d.recycled = append(d.recycled, path)
@@ -90,7 +96,7 @@ func newTestApp(t *testing.T, mutate func(*config.Config)) *testApp {
 	if err := config.Save(cfgPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	desk := &fakeDesk{}
+	desk := &fakeDesk{quickSort: true}
 	a, err := New(Options{ConfigPath: cfgPath, LogPath: filepath.Join(data, "log.txt"), Desktop: desk,
 		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true})
 	if err != nil {
@@ -101,6 +107,7 @@ func newTestApp(t *testing.T, mutate func(*config.Config)) *testApp {
 	go a.Run(ctx)
 	ta := &testApp{App: a, t: t, fake: fake, desk: desk, dir: demos, srv: "http://" + a.ln.Addr().String()}
 	ta.waitFor("account ok", func() bool { return a.accountInfo().Status == "ok" })
+	ta.waitFor("first sync", func() bool { return !a.Syncing() }) // else a test's own sync is skipped
 	a.store.SetIdentities([]store.Identity{{PID: "steam:" + fake.Me.SteamID, Name: "Jamie", Confirmed: true}})
 	return ta
 }
@@ -227,6 +234,32 @@ func TestDeleteAfterUploadAndQuickSortOff(t *testing.T) {
 	ta.waitFor("manual upload", func() bool { return ta.fileState("private_m.replay").State == store.Done })
 	if _, err := os.Stat(manual); err != nil {
 		t.Error("a file picked by hand was deleted")
+	}
+}
+
+// Where the prompt cannot take a choice (macOS), rules sort right away.
+func TestRulesSortRightAwayWithoutPrompt(t *testing.T) {
+	ta := newTestApp(t, nil)
+	ta.desk.mu.Lock()
+	ta.desk.quickSort = false
+	ta.desk.mu.Unlock()
+	ta.setDefaultRules()
+	ta.drop("ranked-doubles_a.replay")
+	f := ta.fileState("ranked-doubles_a.replay")
+	ta.waitFor("sorted without prompt", func() bool {
+		f = ta.fileState("ranked-doubles_a.replay")
+		r, _ := ta.fake.Replay(f.ReplayID)
+		return f.ReplayID != "" && r.Group != ""
+	})
+	if q, _, _ := ta.desk.snapshot(); len(q) != 0 {
+		t.Error("prompt shown although it cannot take a choice")
+	}
+	var state struct {
+		Platform Platform `json:"platform"`
+	}
+	ta.call("GET", "/api/state", "", &state)
+	if state.Platform.OS != "test" || state.Platform.QuickSort {
+		t.Errorf("platform in /api/state = %+v", state.Platform)
 	}
 }
 

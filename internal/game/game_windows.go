@@ -43,6 +43,9 @@ type keyboardInput struct {
 var _ [40 - unsafe.Sizeof(keyboardInput{})]byte
 var _ [unsafe.Sizeof(keyboardInput{}) - 40]byte
 
+// SaveKeySupported reports whether the save key can be pressed.
+func SaveKeySupported() bool { return true }
+
 func sendKey(scan uint16, flags uint32) error {
 	in := keyboardInput{typ: inputKeyboard, scan: scan, flags: keyeventfScancode | flags}
 	n, _, err := procSendInput.Call(1, uintptr(unsafe.Pointer(&in)), unsafe.Sizeof(in))

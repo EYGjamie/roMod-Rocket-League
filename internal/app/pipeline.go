@@ -107,7 +107,7 @@ func (a *App) sortNew(ctx context.Context, r store.Replay) {
 		a.notifyUploaded(r, "")
 		return
 	}
-	if !a.config().QuickSort {
+	if !a.config().QuickSort || !a.desk.Platform().QuickSort {
 		a.applySort(r, target, false)
 		return
 	}

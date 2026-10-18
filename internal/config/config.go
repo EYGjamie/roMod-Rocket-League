@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/EYGjamie/auto-replay-upload/internal/game"
 	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
@@ -80,6 +81,7 @@ func Load(path string) (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("%s: %w", path, err)
 	}
+	cfg.Normalize()
 	if cfg.TokenProtected != "" {
 		if t, err := unprotect(cfg.TokenProtected); err == nil {
 			cfg.Token = t
@@ -90,6 +92,22 @@ func Load(path string) (Config, error) {
 	cfg.storedToken = cfg.Token
 	cfg.applyEnv()
 	return cfg, cfg.Validate()
+}
+
+// Normalize cleans what a user typed: ~ at the start of a replay folder
+// stands for the home folder, as in a shell.
+func (c *Config) Normalize() {
+	dirs := make([]string, 0, len(c.DemoDirs))
+	for _, d := range c.DemoDirs {
+		d = strings.TrimSpace(d)
+		if d == "~" || strings.HasPrefix(d, "~/") || strings.HasPrefix(d, `~\`) {
+			if home, err := os.UserHomeDir(); err == nil {
+				d = filepath.Join(home, d[1:])
+			}
+		}
+		dirs = append(dirs, d)
+	}
+	c.DemoDirs = dirs
 }
 
 func (c *Config) applyEnv() {

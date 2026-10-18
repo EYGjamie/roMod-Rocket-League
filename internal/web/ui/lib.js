@@ -88,6 +88,14 @@ export const fmt = {
 };
 
 export const visibilityNames = { public: 'Öffentlich', unlisted: 'Nicht gelistet', private: 'Privat' };
+
+// system describes the operating system the tool runs on, from the state's
+// platform: what it offers and how to word things there.
+export function system(state) {
+  const p = state?.platform || {};
+  const os = p.os || 'windows';
+  return { ...p, os, windows: os === 'windows', mac: os === 'darwin', linux: os === 'linux' };
+}
 export const stateNames = {
   queued: 'wartet', uploading: 'lädt hoch', processing: 'wird verarbeitet', done: 'fertig',
   retry: 'neuer Versuch', failed: 'fehlgeschlagen', rejected: 'abgelehnt', seeded: 'nicht hochgeladen',

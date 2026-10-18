@@ -1,13 +1,15 @@
-//go:build !windows
+//go:build !windows && !linux && !darwin
 
 package popup
 
 import "log"
 
-// Manager only logs outside Windows.
+// Manager only logs on other systems.
 type Manager struct{}
 
 func New() *Manager { return &Manager{} }
+
+func (m *Manager) Interactive() bool { return false }
 
 func (m *Manager) ShowQuickSort(q Quick, pick func(int)) {
 	log.Printf("Einordnen: %s → %s", q.Title, q.Target)

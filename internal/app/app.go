@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,7 +27,7 @@ import (
 	"github.com/EYGjamie/auto-replay-upload/internal/upload"
 )
 
-// Desktop is what the app needs from the Windows side. Tests use a fake.
+// Desktop is what the app needs from the system side. Tests use a fake.
 type Desktop interface {
 	ShowOverlay(route string)
 	ToggleOverlay()
@@ -42,6 +43,18 @@ type Desktop interface {
 	PickFiles() []string
 	SetAutostart(on bool) error
 	Autostart() bool
+	Platform() Platform
+}
+
+// Platform tells the interface what the system side offers.
+type Platform struct {
+	OS        string `json:"os"`         // windows, darwin or linux
+	Overlay   bool   `json:"overlay"`    // an own window over the game, else the browser
+	Tray      bool   `json:"tray"`       // an icon in the notification area or menu bar
+	Autostart bool   `json:"autostart"`  // starting at sign-in can be switched
+	Hotkeys   bool   `json:"hotkeys"`    // system-wide hotkeys
+	SaveKey   bool   `json:"save_key"`   // the game's save key can be pressed
+	QuickSort bool   `json:"quick_sort"` // the quick-sort prompt takes a choice
 }
 
 // QuickSort is the prompt shown over the game after an upload.
@@ -378,7 +391,11 @@ func (a *App) bindHotkeys(old, cur config.Config) {
 		if err := a.opts.Hotkeys.Set(name, hk, fn); err != nil {
 			log.Printf("Hotkey %s nicht verfügbar: %v", key, err)
 		} else if !hk.IsZero() {
-			log.Printf("%s: %s", key, map[string]string{"overlay": "Overlay öffnen und schließen", "pause": "Pausieren und fortsetzen"}[name])
+			open := "Overlay öffnen und schließen"
+			if !a.desk.Platform().Overlay {
+				open = "Oberfläche öffnen"
+			}
+			log.Printf("%s: %s", key, map[string]string{"overlay": open, "pause": "Pausieren und fortsetzen"}[name])
 		}
 	}
 	bind("overlay", old.GUIHotkey, cur.GUIHotkey, a.desk.ToggleOverlay)
@@ -391,10 +408,12 @@ func (a *App) UpdateSettings(patch []byte) (config.Config, error) {
 	a.mu.Lock()
 	old := a.cfg
 	next := a.cfg
+	next.DemoDirs = slices.Clone(old.DemoDirs) // Unmarshal would write into old's array
 	if err := json.Unmarshal(patch, &next); err != nil {
 		a.mu.Unlock()
 		return old, err
 	}
+	next.Normalize()
 	next.Token, next.TokenProtected = old.Token, old.TokenProtected // only via SetToken
 	if err := next.Validate(); err != nil {
 		a.mu.Unlock()

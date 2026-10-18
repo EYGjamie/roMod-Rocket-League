@@ -1,5 +1,6 @@
-// Package popup shows small windows that stay above the game without
-// taking focus: the quick-sort prompt and notifications.
+// Package popup shows the quick-sort prompt and notifications: on Windows
+// as small windows that stay above the game without taking focus, on Linux
+// and macOS as notifications of the desktop.
 package popup
 
 // Quick is the quick-sort prompt.

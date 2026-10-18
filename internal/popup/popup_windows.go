@@ -251,6 +251,9 @@ func (m *Manager) do(f func()) {
 	procPostThreadMessage.Call(uintptr(m.thread), wmApp, 0, 0)
 }
 
+// Interactive reports that the quick-sort prompt takes a choice.
+func (m *Manager) Interactive() bool { return true }
+
 // ShowQuickSort shows the prompt; pick receives 1–4 for a click on an
 // option.
 func (m *Manager) ShowQuickSort(q Quick, pick func(int)) {

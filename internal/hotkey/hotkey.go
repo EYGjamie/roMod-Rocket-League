@@ -20,8 +20,9 @@ type Hotkey struct {
 	vk   uint32
 }
 
-// Parse reads combinations like "Ctrl+Alt+B" or "Strg+Shift+F9".
-// The key is a letter, a digit or F1–F24; an empty string means no hotkey.
+// Parse reads combinations like "Ctrl+Alt+B" or "Strg+Shift+F9"; "Super"
+// is the Windows key as Linux calls it. The key is a letter, a digit or
+// F1–F24; an empty string means no hotkey.
 func Parse(s string) (Hotkey, error) {
 	var hk Hotkey
 	if strings.TrimSpace(s) == "" {
@@ -36,7 +37,7 @@ func Parse(s string) (Hotkey, error) {
 			hk.mods |= modAlt
 		case "shift", "umschalt":
 			hk.mods |= modShift
-		case "win":
+		case "win", "super":
 			hk.mods |= modWin
 		default:
 			return hk, fmt.Errorf("unbekannte Taste %q in %q", p, s)

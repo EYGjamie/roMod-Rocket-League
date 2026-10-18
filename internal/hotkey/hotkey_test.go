@@ -11,6 +11,7 @@ func TestParseHotkey(t *testing.T) {
 		{in: "Ctrl+Alt+B", want: Hotkey{mods: modCtrl | modAlt, vk: 'B'}},
 		{in: "strg + umschalt + f9", want: Hotkey{mods: modCtrl | modShift, vk: 0x78}},
 		{in: "Win+0", want: Hotkey{mods: modWin, vk: '0'}},
+		{in: "Super+Shift+Q", want: Hotkey{mods: modWin | modShift, vk: 'Q'}},
 		{in: "F24", want: Hotkey{vk: 0x87}},
 		{in: ""},
 		{in: "Ctrl+B+C", wantErr: true},

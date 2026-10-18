@@ -1,52 +1,45 @@
-//go:build !windows
+//go:build !windows && !darwin && !linux
 
 package desktop
 
 import (
-	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 )
 
-// Run waits for ctx; there is no notification area icon here.
-func (t Tray) Run(ctx context.Context) { <-ctx.Done() }
+// On other systems the tool runs in the terminal: messages are already in
+// the log there, and autostart is left to the user.
+
+const (
+	TrayHint     = ""
+	SignIn       = "bei der Anmeldung"
+	HasAutostart = false
+)
 
 func Autostart() bool { return false }
 
 func SyncAutostart([]string) error { return nil }
 
 func SetAutostart(bool, []string) error {
-	return errors.New("Autostart wird nur unter Windows unterstützt")
+	return errors.New("Autostart wird auf diesem System nicht unterstützt")
 }
 
 func SetDPIAware() {}
 
 func SingleInstance(string) bool { return true }
 
-// Messages are already in the log, which goes to the terminal here.
-
 func ShowError(string) {}
 
 func ShowInfo(string) {}
 
-func Edit(path string) error {
-	cmd := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		cmd = "open"
-	}
-	return exec.Command(cmd, path).Start()
-}
+func Edit(path string) error { return exec.Command("xdg-open", path).Start() }
 
-func SetTrayState(paused, failed bool) {}
-
-// Recycle deletes the file; there is no recycle bin to rely on here.
-func Recycle(path string) error { return os.Remove(path) }
+// Recycle refuses: without a known recycle bin the file stays where it is.
+func Recycle(string) error { return errors.New("kein Papierkorb auf diesem System") }
 
 func Reveal(path string) error { return OpenFolder(filepath.Dir(path)) }
 
 func OpenFolder(dir string) error { return Edit(dir) }
 
-func PickFiles(dir string) []string { return nil }
+func PickFiles(string) []string { return nil }

@@ -19,6 +19,9 @@ const (
 	settingsValue = "Autostart"
 )
 
+// HasAutostart reports that starting at sign-in can be switched.
+const HasAutostart = true
+
 // Autostart reports whether Windows starts the tool at sign-in.
 func Autostart() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)

@@ -1,4 +1,4 @@
-import { api, h, fill, fmt, run, debounce, stateNames, sw, replayRow, uploadFiles } from '../lib.js';
+import { api, h, fill, fmt, run, debounce, stateNames, sw, replayRow, uploadFiles, system } from '../lib.js';
 
 export const title = 'Übersicht';
 
@@ -13,6 +13,7 @@ export async function mount(root, ctx) {
 
   function renderStatus() {
     const s = ctx.state;
+    const sys = system(s);
     const acc = s.account || {};
     const paused = s.paused || {};
     const toggle = (key, value) => run(() => api('/api/pause', { method: 'POST', body: { [key]: !value } }));
@@ -31,8 +32,8 @@ export async function mount(root, ctx) {
           h('span', { class: s.stats_api ? '' : 'muted' }, s.in_match ? 'im Match' : s.stats_api ? 'verbunden' : 'nicht verbunden')),
         h('hr', { class: 'sep' }),
         h('div', { class: 'row' }, h('div', { class: 'grow' }, 'Ordner überwachen und hochladen'), sw(!paused.watch, () => toggle('watch', paused.watch))),
-        h('div', { class: 'row' }, h('div', { class: 'grow' }, 'Replays automatisch speichern'), sw(!paused.mark, () => toggle('mark', paused.mark))),
-        h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Strg+Alt+P pausiert beides zusammen.')),
+        sys.save_key ? h('div', { class: 'row' }, h('div', { class: 'grow' }, 'Replays automatisch speichern'), sw(!paused.mark, () => toggle('mark', paused.mark))) : null,
+        sys.hotkeys ? h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Strg+Alt+P pausiert beides zusammen.') : null),
       h('div', { class: 'row', style: { marginTop: '14px' } },
         h('button', { onclick: () => picker.click() }, 'Replays hochladen …'),
         h('button', { onclick: () => run(() => api('/api/open-folder', { method: 'POST' })) }, 'Replay-Ordner öffnen')));

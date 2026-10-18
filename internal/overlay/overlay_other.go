@@ -7,7 +7,11 @@ import (
 	"runtime"
 )
 
-// Overlay falls back to the browser; the native window needs Windows.
+// Native is false: the overlay needs WebView2, so the interface opens in
+// the browser instead.
+const Native = false
+
+// Overlay opens the interface in the browser.
 type Overlay struct{ url string }
 
 func NewOverlay(url string) *Overlay { return &Overlay{url} }
@@ -24,9 +28,14 @@ func (o *Overlay) Show(route string) {
 
 // OpenBrowser opens a URL in the default browser.
 func OpenBrowser(url string) error {
-	cmd := "xdg-open"
+	name := "xdg-open"
 	if runtime.GOOS == "darwin" {
-		cmd = "open"
+		name = "open"
 	}
-	return exec.Command(cmd, url).Start()
+	cmd := exec.Command(name, url)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
 }

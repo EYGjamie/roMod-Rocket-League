@@ -95,3 +95,17 @@ func TestLoadAcceptsBOM(t *testing.T) {
 		t.Errorf("Load(with BOM) = %q, %v", cfg.Visibility, err)
 	}
 }
+
+func TestLoadExpandsHomeInReplayFolders(t *testing.T) {
+	t.Setenv("BALLCHASING_TOKEN", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows
+	path := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(path, []byte(`{"demo_dirs":["~/Replays", " /srv/rl ", "~"]}`), 0o600)
+	cfg, err := Load(path)
+	want := []string{filepath.Join(home, "Replays"), "/srv/rl", home}
+	if err != nil || strings.Join(cfg.DemoDirs, "|") != strings.Join(want, "|") {
+		t.Errorf("DemoDirs = %q, %v; want %q", cfg.DemoDirs, err, want)
+	}
+}
