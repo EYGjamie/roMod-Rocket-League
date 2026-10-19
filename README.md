@@ -56,7 +56,7 @@ cd auto-replay-upload
 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/auto-replay-upload.exe ./cmd/auto-replay-upload
 ```
 
-`-H windowsgui` sorgt dafür, dass kein Konsolenfenster aufgeht. Die fertige `dist/auto-replay-upload.exe` in einen eigenen Ordner kopieren, zum Beispiel `C:\Tools\auto-replay-upload\`. Dort legt das Tool auch Konfiguration, Datenbank und Log ab. Der Autostart zeigt auf genau diese exe; verschiebst du den Ordner, einfach einmal von dort starten.
+`-H windowsgui` sorgt dafür, dass kein Konsolenfenster aufgeht. Symbol, Programmname und Manifest kommen aus den `rsrc_windows_*.syso` in `cmd/auto-replay-upload`, die `go build` von selbst einbindet. Die fertige `dist/auto-replay-upload.exe` in einen eigenen Ordner kopieren, zum Beispiel `C:\Tools\auto-replay-upload\`. Dort legt das Tool auch Konfiguration, Datenbank und Log ab. Der Autostart zeigt auf genau diese exe; verschiebst du den Ordner, einfach einmal von dort starten.
 
 **macOS**
 
@@ -79,7 +79,9 @@ Windows- und Linux-Programme lassen sich auf jedem System bauen, etwa mit `GOOS=
 
 ### 2. Stats API aktivieren
 
-Rocket League beenden. Im Installationsordner des Spiels die Datei `TAGame/Config/TAStatsAPI.ini` öffnen (gibt es sie nicht, dann `DefaultStatsAPI.ini`) und im Abschnitt `[TAGame.MatchStatsExporter_TA]` setzen:
+Das erledigt die Einrichtung (Schritt „Rocket League“) mit einem Klick auf **„Stats API einschalten“**: Das Tool sucht das Spiel in allen Steam-Bibliotheken, beim Epic Games Launcher, bei Heroic und Legendary sowie in den Wine-Präfixen und schaltet die API in jeder gefundenen Installation ein. Liegt das Spiel unter `Program Files`, fragt Windows einmal nach Administratorrechten. Läuft Rocket League gerade, wirkt die Änderung nach dem nächsten Start des Spiels. Dieselbe Anzeige steht unter Einstellungen → Spiel, etwa wenn ein Spielupdate die Datei zurückgesetzt hat. Mit **„Stats API beim Start einschalten“** prüft das Tool das bei jedem Start und schaltet die API selbst wieder ein.
+
+Von Hand: Rocket League beenden. Im Installationsordner des Spiels die Datei `TAGame/Config/TAStatsAPI.ini` öffnen (gibt es sie nicht, dann `DefaultStatsAPI.ini`) und im Abschnitt `[TAGame.MatchStatsExporter_TA]` setzen:
 
 ```ini
 [TAGame.MatchStatsExporter_TA]
@@ -117,7 +119,7 @@ Wer von einer älteren Version umsteigt, behält `config.json` und den Upload-St
 
 ### Im Hintergrund
 
-Das Tool startet bei der Anmeldung und zeigt sich nur als Symbol: unter Windows im Infobereich der Taskleiste (unter Windows 11 zunächst bei den **ausgeblendeten Symbolen**, Pfeil **^** neben der Uhr), unter macOS in der Menüleiste, unter Linux im Infobereich der Leiste. Grau heißt pausiert, ein roter Punkt heißt, dass Uploads fehlgeschlagen sind.
+Startest du das Programm selbst (Doppelklick auf die exe), öffnet sich gleich die Oberfläche; ein Konsolenfenster gibt es nicht. Läuft es schon, holt ein weiterer Start die Oberfläche des laufenden Programms nach vorn. Bei der Anmeldung startet es dagegen nur mit dem Symbol, solange „Bei der Anmeldung minimiert starten“ an ist: unter Windows im Infobereich der Taskleiste (unter Windows 11 zunächst bei den **ausgeblendeten Symbolen**, Pfeil **^** neben der Uhr), unter macOS in der Menüleiste, unter Linux im Infobereich der Leiste. Grau heißt pausiert, ein roter Punkt heißt, dass Uploads fehlgeschlagen sind.
 
 Unter Windows öffnet ein **Linksklick** das Overlay und ein **Rechtsklick** das Menü, unter Linux ebenso, sofern die Leiste das unterscheidet. Auf dem Mac öffnet jeder Klick das Menü:
 
@@ -130,8 +132,6 @@ Unter Windows öffnet ein **Linksklick** das Overlay und ein **Rechtsklick** das
 | Im Browser öffnen | Windows: dieselbe Oberfläche im Standardbrowser |
 | Einstellungen | die Oberfläche mit den Einstellungen |
 | Beenden | bis zum nächsten Start |
-
-Startest du das Programm ein zweites Mal, meldet es nur, dass es schon läuft.
 
 ### Nach jedem Match
 
@@ -149,7 +149,7 @@ Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vorde
 
 | Bereich | Inhalt |
 |---|---|
-| Übersicht | Warteschlange und letzte Uploads in einer Tabelle (Alle, Wartet, Fehler, Hochgeladen), Pause, fehlgeschlagene Uploads erneut senden, Replays hochladen (auch per Drag & Drop auf die Seite). Die Statusleiste unten zeigt das Upload-Kontingent, Probleme mit ballchasing und die Pause |
+| Übersicht | Warteschlange und letzte Uploads in einer Tabelle (Alle, Wartet, Fehler, Hochgeladen, Ignoriert), Pause, fehlgeschlagene Uploads erneut senden oder dauerhaft ignorieren, Replays hochladen (auch per Drag & Drop auf die Seite). Die Statusleiste unten zeigt das Upload-Kontingent, Probleme mit ballchasing und die Pause |
 | Eingang | alles ohne Ordner, mit Vorschlag pro Replay und Ordnerauswahl je Zeile; alle Vorschläge auf einmal übernehmen oder eine Auswahl in einen Ordner verschieben |
 | Verlauf | alle Replays deines Kontos und die Spiele mit dir, die Mitspieler hochgeladen haben (Duplikate nur einmal), nach Session oder als Liste. Suche nach Map, Playlist oder Mitspieler; eine Session auf einmal verschieben |
 | Replay-Details | Überblick mit Spielern und Ballbesitz, dazu Kern, Boost, Bewegung, Position und Demos im Vergleich mit Lobby, Mitspielern oder Gegnern (relativ oder absolut) sowie Kamera & Auto. Ins Spiel laden, Sichtbarkeit, Verschieben und Löschen |
@@ -159,6 +159,10 @@ Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vorde
 | Einstellungen | alles aus der Einrichtung; jede Änderung gilt sofort. Was ein System nicht kann (etwa Hotkeys auf dem Mac), blendet die Oberfläche aus und sagt warum |
 
 Replays, die Mitspieler hochgeladen haben, lassen sich nur ansehen und ins Spiel laden. Verschieben, Sichtbarkeit und Löschen erlaubt die ballchasing-API nur beim eigenen Upload.
+
+Aktionen, die auf ballchasing warten (Verschieben, Sichtbarkeit, Löschen, Ordner anlegen, Abgleich, Token prüfen, Statistiken und Replays laden), zeigen unten rechts eine Info-Karte, bis ballchasing geantwortet hat.
+
+Playlists zeigt die Oberfläche so, wie es sie im Spiel noch gibt: Solo Standard gibt es nicht mehr, und Hoops, Rumble, Dropshot und Snow Day nur noch als Ranked. Ältere Replays aus diesen Playlists zählen überall als ihr Nachfolger, also als Ranked 3s oder als die Ranked-Variante; Regeln, Vorschläge und Statistik behandeln beide gleich.
 
 ### Ins Spiel laden
 
@@ -192,6 +196,7 @@ auto-replay-upload -config ~/rl/config.json
 | `upload_existing` | `false` | beim Start noch nicht hochgeladene Altdateien hochladen |
 | `delete_after_upload` | `false` | Dateien nach dem Upload in den Papierkorb |
 | `stats_api_addr` | `127.0.0.1:49123` | Adresse der Stats API (muss zu `Port` in der ini passen) |
+| `stats_api_auto` | `false` | beim Start die Stats API in der ini des Spiels einschalten, falls ein Spielupdate sie ausgeschaltet hat |
 | `auto_mark` | `true` | Speichern-Taste nach dem ersten Anstoß drücken |
 | `online_only` | `true` | nur Online-/LAN-Matches vormerken |
 | `mark_key` | `Backspace` | Speichern-Taste als [KeyboardEvent.code](https://developer.mozilla.org/docs/Web/API/KeyboardEvent/code) |
@@ -201,7 +206,7 @@ auto-replay-upload -config ~/rl/config.json
 | `notify_uploaded`, `notify_failed`, `notify_session` | `true` | Benachrichtigungen |
 | `quick_sort` | `true` | Schnell-Einordnen nach dem Upload; aus = Regeln ordnen ohne Rückfrage ein |
 | `quick_sort_seconds` | `10` | Countdown (3 bis 60) |
-| `start_minimized` | `true` | beim Start nur das Symbol zeigen |
+| `start_minimized` | `true` | beim Start durch die Anmeldung nur das Symbol zeigen; ein Start von Hand öffnet die Oberfläche immer |
 | `setup_done` | `false` | Assistent erledigt |
 
 Hotkeys bestehen aus `Ctrl`/`Strg`, `Alt`, `Shift`, `Win` (unter Linux auch `Super`) plus Buchstabe, Ziffer oder `F1`–`F24`.
@@ -211,6 +216,7 @@ Weitere Dateien neben der `config.json`:
 - `auto-replay-upload.db`: Datenbank mit Upload-Status, Replays, Ordnern, Regeln und Entscheidungen
 - `auto-replay-upload.log`: das Log (über 1 MB wird es beim Start zu `.log.old`), in der Oberfläche unter Einstellungen → Log anzeigen
 - `manuell/`: Kopien von Replays, die über die Oberfläche hochgeladen wurden
+- `instance.json`: solange das Tool läuft, die Adresse seiner Oberfläche, damit ein zweiter Start sie öffnen kann
 
 Außerdem je System:
 
@@ -228,14 +234,15 @@ Meldungen stehen im Log, die letzte auch im Tooltip des Symbols. Fehler, wegen d
 
 | Problem | Ursache und Lösung |
 |---|---|
-| „Rocket League nicht verbunden“, obwohl das Spiel läuft | Stats API aus oder anderer Port. `PacketSendRate` und `Port` in der ini prüfen (siehe [Installation](#2-stats-api-aktivieren)), danach das Spiel neu starten. |
+| „Rocket League nicht verbunden“, obwohl das Spiel läuft | Stats API aus oder anderer Port. Unter Einstellungen → Spiel „Stats API einschalten“ (siehe [Installation](#2-stats-api-aktivieren)), danach das Spiel neu starten. |
 | „Token ungültig“ | Neuen Token auf [ballchasing.com/upload](https://ballchasing.com/upload) erzeugen und in den Einstellungen eintragen. Uploads warten so lange. |
 | „ballchasing nicht erreichbar“, Uploads warten | Internet oder ballchasing gestört. Die Uploads laufen von selbst weiter, ein Ausfall zählt nicht als Fehlversuch. |
-| Upload „fehlgeschlagen“ | Drei Versuche (sofort, nach 1 und nach 5 Minuten) sind gescheitert. In der Übersicht „Jetzt erneut“. |
-| „abgelehnt“ | ballchasing kann die Datei nicht verarbeiten (z. B. beschädigt). |
+| Upload „fehlgeschlagen“ | Drei Versuche (sofort, nach 1 und nach 5 Minuten) sind gescheitert. In der Übersicht „Erneut versuchen“, oder „Ignorieren“, dann lädt das Tool die Datei nie wieder hoch (rückgängig unter „Ignoriert“). |
+| „abgelehnt“ | ballchasing kann die Datei nicht verarbeiten (z. B. beschädigt). Am besten ignorieren, auch direkt aus der Benachrichtigung. |
 | Kein Symbol in der Taskleiste (Windows) | Es liegt bei den ausgeblendeten Symbolen. Fehlt es auch dort, die exe starten. |
 | Kein Symbol (Linux) | Die Leiste zeigt keine StatusNotifierItems. Unter GNOME die Erweiterung „AppIndicator and KStatusNotifierItem Support“ installieren; das Log sagt in dem Fall „Kein Infobereich für das Symbol gefunden“. Ohne Symbol öffnet der Hotkey (Strg+Alt+B) die Oberfläche, und mit „Minimiert starten“ aus öffnet sie sich bei jedem Start. |
-| „läuft schon“ | Es läuft bereits eine Instanz mit derselben Konfiguration, etwa aus dem Autostart. |
+| „läuft schon“ | Es läuft bereits eine Instanz mit derselben Konfiguration, etwa aus dem Autostart, und ihre Oberfläche ließ sich nicht öffnen. Über das Symbol öffnen oder das Programm dort beenden. |
+| Konsolenfenster beim Start (Windows) | Die exe wurde ohne `-H windowsgui` gebaut. Das Tool schließt das Fenster dann sofort selbst, ganz verschwindet es nur mit dem Build-Befehl aus der [Installation](#1-programm-bauen). |
 | Kein Replay-Ordner gefunden (macOS, Linux) | Das Spiel hat noch kein Replay gespeichert, oder es liegt in einem unbekannten Präfix. Den Ordner `TAGame/Demos` in den Einstellungen hinzufügen. |
 | Schnell-Einordnen oder Overlay nicht über dem Spiel (Windows) | Rocket League auf „Randloses Fenster“ stellen. Die Tasten Strg+Alt+1–4 funktionieren auch im Vollbild. |
 | Hotkey funktioniert nicht | Ein anderes Programm nutzt die Kombination. In den Einstellungen eine andere wählen. Unter Linux wechselt Strg+Alt+F1 bis F12 die Konsole und taugt nicht als Hotkey. |
@@ -270,12 +277,13 @@ Meldungen stehen im Log, die letzte auch im Tooltip des Symbols. Fehler, wegen d
 
 ```text
 cmd/auto-replay-upload/   Einstiegspunkt: Log, eine Instanz, Autostart, Tray, Verdrahtung mit dem System
+  winres/                 Symbol, Programmname und Manifest der exe (go-winres)
 cmd/uidemo/               die Oberfläche mit erfundenen Daten gegen einen Fake von ballchasing
 docs/konzept.md           Konzept mit allen Abläufen und Entscheidungen
 scripts/macos-app.sh      baut die Mac-App
 internal/
   app/                    Kern: Abläufe nach dem Upload, Abgleich, Sessions, Statistik, JSON-API der Oberfläche
-  assets/                 das Programmsymbol
+  assets/                 das Programmsymbol und gen.go, das es zeichnet
   ballchasing/            Client für die ballchasing-API mit Drosselung
     ballchasingtest/      nachgebaute ballchasing-API für Tests und die Demo
   config/                 config.json lesen und schreiben, Token per DPAPI
@@ -307,10 +315,19 @@ Die Oberfläche mit Beispieldaten ausprobieren, ohne ballchasing-Konto (die Adre
 go run ./cmd/uidemo -os darwin
 ```
 
+`-slow 2s` verzögert jede Anfrage an den Fake, um die Info-Karten zu sehen. Die Demo nutzt eine eigene Spiel-Installation im Temp-Ordner, nie die echte.
+
 Tests:
 
 ```bash
 go test ./...
+```
+
+Das Symbol zeichnet `internal/assets/gen.go` (nur Standardbibliothek): Tray-Symbole als ICO und PNG in allen drei Zuständen, mit einer kräftigeren Variante bis 24 Pixel, und `internal/web/ui/icon.svg` für die Oberfläche. Nach einer Änderung dort beides neu erzeugen; der zweite Befehl lädt [go-winres](https://github.com/tc-hib/go-winres) und baut die Ressourcen der exe:
+
+```bash
+go generate ./internal/assets
+go generate ./cmd/auto-replay-upload
 ```
 
 Unter Linux starten die Tests einen eigenen X-Server (Xvfb) und einen eigenen D-Bus, falls installiert, und prüfen damit Hotkeys, Speichern-Taste und Benachrichtigungen echt; ohne sie werden diese Tests übersprungen. Die CI (`.github/workflows/ci.yml`) testet und baut auf Windows, macOS und Linux.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -15,6 +16,18 @@ import (
 // DefaultDemoDirs returns the replay folders found in the bottles of
 // CrossOver and Whisky and in Heroic's prefixes.
 func DefaultDemoDirs() ([]string, error) { return searchDemoDirs(macPatterns) }
+
+// GameDirs returns where the game may be installed: the bottles of
+// CrossOver and Whisky, Heroic and Legendary.
+func GameDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return installDirs(home, macPatterns,
+		filepath.Join(home, "Library", "Application Support", "heroic", "legendaryConfig", "legendary", "installed.json"),
+		filepath.Join(home, ".config", "legendary", "installed.json"))
+}
 
 // On a Mac the game only runs under Wine, and macOS lets no program type
 // into another without the accessibility permission, so the tool does not

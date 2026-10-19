@@ -1,4 +1,4 @@
-import { api, h, ico, fill, fmt, run, menu, seg, confirmDialog, pickFolder, moveTo, plName, scoreLine, visibilityNames } from '../lib.js';
+import { api, h, ico, fill, fmt, run, busy, menu, seg, confirmDialog, pickFolder, moveTo, plName, scoreLine, visibilityNames } from '../lib.js';
 
 const tabs = ['Überblick', 'Kern', 'Boost', 'Bewegung', 'Position', 'Demos', 'Kamera & Auto'];
 
@@ -135,7 +135,7 @@ function actions(r, reload) {
     } });
     for (const [v, label] of Object.entries(visibilityNames)) {
       items.push({ label: 'Sichtbarkeit: ' + label, on: r.visibility === v, run: async () => {
-        if (await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids: [r.id], visibility: v } }), 'Sichtbarkeit geändert')) reload();
+        if (await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids: [r.id], visibility: v } }), 'Sichtbarkeit geändert', 'Sichtbarkeit wird geändert')) reload();
       } });
     }
   }
@@ -149,7 +149,7 @@ function actions(r, reload) {
   if (r.own) {
     items.push('-', { label: 'Auf ballchasing löschen …', icon: 'trash', danger: true, run: async () => {
       if (await confirmDialog('Replay löschen', 'Das Replay wird auf ballchasing endgültig gelöscht. Das lässt sich nicht rückgängig machen.', 'Endgültig löschen', true)
-        && await run(() => api('/api/replays/delete', { method: 'POST', body: { ids: [r.id] } }), 'Gelöscht')) location.hash = '#/verlauf';
+        && await run(() => api('/api/replays/delete', { method: 'POST', body: { ids: [r.id] } }), 'Gelöscht', 'Replay wird auf ballchasing gelöscht')) location.hash = '#/verlauf';
     } });
   }
   return items;
@@ -162,7 +162,9 @@ export async function mount(root, ctx) {
   if (id !== shownID) { tab = 0; shownID = id; }
 
   async function load() {
-    const data = await api('/api/replays/' + encodeURIComponent(id));
+    const done = busy('Statistiken werden geladen', undefined, 400); // only replays without them wait for ballchasing
+    let data;
+    try { data = await api('/api/replays/' + encodeURIComponent(id)); } finally { done(); }
     const r = data.replay;
     const d = data.detail || {};
     const meIDs = new Set(ctx.state.me || []);
@@ -205,7 +207,7 @@ export async function mount(root, ctx) {
           h('a', { class: 'btn btn-secondary', href: r.link, target: '_blank', rel: 'noopener noreferrer' }, ico('arrow-square-out'), 'ballchasing'),
           h('span', { class: 'tipwrap' },
             h('button', { class: 'btn btn-secondary', 'aria-describedby': 'load-tip', onclick: async () => {
-              if (await run(() => api('/api/replays/' + r.id + '/borrow', { method: 'POST' }), 'Liegt jetzt im Replay-Ordner, im Spiel unter „Replays“')) load();
+              if (await run(() => api('/api/replays/' + r.id + '/borrow', { method: 'POST' }), 'Liegt jetzt im Replay-Ordner, im Spiel unter „Replays“', 'Replay wird von ballchasing geladen')) load();
             } }, ico('game-controller'), 'Ins Spiel laden'),
             h('span', { class: 'tooltip', id: 'load-tip', role: 'tooltip' }, 'Lädt die Replay-Datei von ballchasing herunter und legt sie in deinen Replay-Ordner. Danach findest du sie im Spiel unter ',
               h('span', { style: { color: 'var(--color-text)' } }, 'Replays'), ' und kannst sie dort ansehen.')),

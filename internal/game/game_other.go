@@ -24,3 +24,5 @@ func DefaultDemoDirs() ([]string, error) {
 }
 
 func RocketLeagueRunning() bool { return false }
+
+func GameDirs() []string { return nil }

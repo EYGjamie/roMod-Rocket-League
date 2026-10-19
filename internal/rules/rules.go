@@ -18,28 +18,68 @@ type Playlist struct {
 	Name string `json:"name"`
 }
 
-// Playlists lists the playlists ballchasing knows, in the order the
-// interface offers them.
+// Playlists lists the playlists the game still has, in the order the
+// interface offers them. Older replays may carry one of the retired
+// playlists below, which count as the playlist that took their place.
 var Playlists = []Playlist{
 	{"ranked-duels", "Ranked Duels (1s)"}, {"ranked-doubles", "Ranked Doubles (2s)"},
-	{"ranked-standard", "Ranked Standard (3s)"}, {"ranked-solo-standard", "Ranked Solo Standard"},
+	{"ranked-standard", "Ranked Standard (3s)"},
 	{"unranked-duels", "Casual Duels (1s)"}, {"unranked-doubles", "Casual Doubles (2s)"},
 	{"unranked-standard", "Casual Standard (3s)"}, {"unranked-chaos", "Casual Chaos (4s)"},
-	{"ranked-hoops", "Ranked Hoops"}, {"hoops", "Hoops"}, {"ranked-rumble", "Ranked Rumble"}, {"rumble", "Rumble"},
-	{"ranked-dropshot", "Ranked Dropshot"}, {"dropshot", "Dropshot"}, {"ranked-snowday", "Ranked Snow Day"},
-	{"snowday", "Snow Day"}, {"heatseeker", "Heatseeker"}, {"dropshot-rumble", "Dropshot Rumble"},
-	{"rocketlabs", "Rocket Labs"}, {"tournament", "Turniere"}, {"private", "Private"},
+	{"ranked-hoops", "Ranked Hoops"}, {"ranked-rumble", "Ranked Rumble"},
+	{"ranked-dropshot", "Ranked Dropshot"}, {"ranked-snowday", "Ranked Snow Day"},
+	{"heatseeker", "Heatseeker"}, {"dropshot-rumble", "Dropshot Rumble"},
+	{"tournament", "Turniere"}, {"private", "Private"},
 	{"season", "Saison (offline)"}, {"offline", "Offline"},
+}
+
+// retired maps playlists the game dropped to the one that replaced them:
+// Solo Standard is gone and the extra modes are only played ranked.
+var retired = map[string]string{
+	"ranked-solo-standard": "ranked-standard",
+	"hoops":                "ranked-hoops",
+	"rumble":               "ranked-rumble",
+	"dropshot":             "ranked-dropshot",
+	"snowday":              "ranked-snowday",
+}
+
+// retiredNames names playlists that are gone without a successor.
+var retiredNames = map[string]string{"rocketlabs": "Rocket Labs"}
+
+// Canonical returns the playlist an ID counts as: the successor of a
+// retired playlist, else the ID itself. Rules, suggestions and the
+// interface only deal with these.
+func Canonical(id string) string {
+	if c, ok := retired[id]; ok {
+		return c
+	}
+	return id
 }
 
 // PlaylistName returns the display name of a playlist ID.
 func PlaylistName(id string) string {
+	id = Canonical(id)
 	for _, p := range Playlists {
 		if p.ID == id {
 			return p.Name
 		}
 	}
+	if n, ok := retiredNames[id]; ok {
+		return n
+	}
 	return id
+}
+
+// CanonicalList maps a list of playlist IDs to the ones they count as,
+// each once, in the original order.
+func CanonicalList(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if c := Canonical(id); !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Defaults returns the standard rules: one folder per playlist, ranked and
@@ -51,22 +91,17 @@ func Defaults() []store.Rule {
 	}{
 		{[]string{"ranked-duels"}, "1s Ranked"},
 		{[]string{"ranked-doubles"}, "2s Ranked"},
-		{[]string{"ranked-standard", "ranked-solo-standard"}, "3s Ranked"},
+		{[]string{"ranked-standard"}, "3s Ranked"},
 		{[]string{"unranked-duels"}, "1s Casual"},
 		{[]string{"unranked-doubles"}, "2s Casual"},
 		{[]string{"unranked-standard"}, "3s Casual"},
 		{[]string{"unranked-chaos"}, "4s Casual"},
-		{[]string{"ranked-hoops"}, "Hoops Ranked"},
-		{[]string{"hoops"}, "Hoops Casual"},
-		{[]string{"ranked-rumble"}, "Rumble Ranked"},
-		{[]string{"rumble"}, "Rumble Casual"},
-		{[]string{"ranked-dropshot"}, "Dropshot Ranked"},
-		{[]string{"dropshot"}, "Dropshot Casual"},
-		{[]string{"ranked-snowday"}, "Snow Day Ranked"},
-		{[]string{"snowday"}, "Snow Day Casual"},
+		{[]string{"ranked-hoops"}, "Hoops"},
+		{[]string{"ranked-rumble"}, "Rumble"},
+		{[]string{"ranked-dropshot"}, "Dropshot"},
+		{[]string{"ranked-snowday"}, "Snow Day"},
 		{[]string{"heatseeker"}, "Heatseeker"},
 		{[]string{"dropshot-rumble"}, "Dropshot Rumble"},
-		{[]string{"rocketlabs"}, "Rocket Labs"},
 		{[]string{"tournament"}, "Turniere"},
 		{[]string{"private"}, "Private"},
 	}
@@ -87,16 +122,17 @@ type Facts struct {
 func FactsOf(r store.Replay, me map[string]bool) Facts {
 	mates := r.Mates(me)
 	sort.Strings(mates)
-	return Facts{PlaylistID: r.PlaylistID, Mates: mates}
+	return Facts{PlaylistID: Canonical(r.PlaylistID), Mates: mates}
 }
 
 // Matches reports whether a rule applies. A rule without any condition
-// matches nothing.
+// matches nothing. A retired playlist and its successor are the same.
 func Matches(r store.Rule, f Facts) bool {
 	if !r.Enabled || len(r.Playlists) == 0 && len(r.Players) == 0 {
 		return false
 	}
-	if len(r.Playlists) > 0 && !slices.Contains(r.Playlists, f.PlaylistID) {
+	playlist := Canonical(f.PlaylistID)
+	if len(r.Playlists) > 0 && !slices.ContainsFunc(r.Playlists, func(p string) bool { return Canonical(p) == playlist }) {
 		return false
 	}
 	if len(r.Players) == 0 {
@@ -160,6 +196,7 @@ func Suggest(f Facts, rules []store.Rule, decisions []store.Decision, groups, na
 	// another playlist count only a little.
 	type tally struct{ playlistMates, playlistSomeMates, playlist, mates, recent int }
 	counts := map[string]*tally{}
+	playlist := Canonical(f.PlaylistID)
 	for i, d := range decisions {
 		if d.GroupID == "" {
 			continue
@@ -169,7 +206,7 @@ func Suggest(f Facts, rules []store.Rule, decisions []store.Decision, groups, na
 			t = &tally{}
 			counts[d.GroupID] = t
 		}
-		samePlaylist := d.PlaylistID == f.PlaylistID
+		samePlaylist := Canonical(d.PlaylistID) == playlist
 		overlap := len(f.Mates) > 0 && overlaps(d.Mates, f.Mates)
 		switch {
 		case samePlaylist && len(f.Mates) > 0 && slices.Equal(d.Mates, f.Mates):
@@ -255,10 +292,11 @@ func SuggestRules(decisions []store.Decision, rules []store.Rule, ignored func(k
 		if !d.Manual || d.GroupID == "" {
 			continue
 		}
-		key := "regel:" + d.PlaylistID + "|" + strings.Join(d.Mates, ",") + "|" + d.GroupID
+		playlist := Canonical(d.PlaylistID)
+		key := "regel:" + playlist + "|" + strings.Join(d.Mates, ",") + "|" + d.GroupID
 		s := byKey[key]
 		if s == nil {
-			s = &RuleSuggestion{Key: key, PlaylistID: d.PlaylistID, Mates: d.Mates, GroupID: d.GroupID}
+			s = &RuleSuggestion{Key: key, PlaylistID: playlist, Mates: d.Mates, GroupID: d.GroupID}
 			byKey[key] = s
 		}
 		s.Count++

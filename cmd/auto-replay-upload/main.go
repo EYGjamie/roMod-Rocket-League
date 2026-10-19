@@ -8,12 +8,17 @@
 // the browser.
 package main
 
+//go:generate go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64,arm64
+
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -33,19 +38,37 @@ import (
 // version is set at build time with -ldflags "-X main.version=…".
 var version = "dev"
 
+// pathList is a flag that may be given several times.
+type pathList []string
+
+func (p *pathList) String() string     { return strings.Join(*p, ", ") }
+func (p *pathList) Set(v string) error { *p = append(*p, v); return nil }
+
 func main() {
+	desktop.HideConsole()
 	desktop.SetDPIAware()
 	exe, _ := os.Executable()
 	defaultCfg := defaultConfig(exe)
 	cfgFlag := flag.String("config", defaultCfg, "Pfad zur Konfigurationsdatei")
+	atSignIn := flag.Bool("autostart", false, "bei der Anmeldung gestartet: die Oberfläche öffnet sich nur ohne start_minimized")
+	var statsINIs pathList
+	flag.Var(&statsINIs, "enable-stats-api", "schaltet in dieser ini des Spiels die Stats API ein und beendet sich (die Oberfläche ruft das mit Administratorrechten auf)")
+	statsPort := flag.Int("stats-api-port", game.DefaultStatsPort, "Port für -enable-stats-api")
 	flag.Parse()
+	if len(statsINIs) > 0 {
+		os.Exit(enableStatsAPI(statsINIs, *statsPort))
+	}
 	cfgPath, err := filepath.Abs(*cfgFlag)
 	if err != nil {
 		fatal("Konfiguration: %v", err)
 	}
+	instance := filepath.Join(filepath.Dir(cfgPath), "instance.json")
 
 	if !desktop.SingleInstance(cfgPath) {
-		desktop.ShowInfo(strings.TrimSpace("auto-replay-upload läuft schon. " + desktop.TrayHint))
+		// started again by hand: bring up the interface of the running copy
+		if !*atSignIn && showRunning(instance) != nil {
+			desktop.ShowInfo(strings.TrimSpace("auto-replay-upload läuft schon. " + desktop.TrayHint))
+		}
 		return
 	}
 	logPath := filepath.Join(filepath.Dir(cfgPath), "auto-replay-upload.log")
@@ -61,7 +84,7 @@ func main() {
 		log.Printf("Hotkeys nicht verfügbar: %v", err)
 	}
 	d := &desk{pop: popup.New(), hotkeys: hk != nil, saveKey: game.SaveKeySupported()}
-	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: logPath, Desktop: d, Hotkeys: hk})
+	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: logPath, Desktop: d, Hotkeys: hk, ShowUI: !*atSignIn})
 	if err != nil {
 		desktop.Edit(cfgPath)
 		fatal("Start fehlgeschlagen: %v", err)
@@ -70,8 +93,12 @@ func main() {
 	d.url = a.URL()
 	d.overlay = overlay.NewOverlay(d.url)
 	d.replayDir = a.ReplayFolder
+	if err := writeInstance(instance, d.url); err != nil {
+		log.Printf("%s: %v", instance, err)
+	}
+	defer os.Remove(instance)
 
-	d.autostart = []string{exe}
+	d.autostart = []string{exe, "-autostart"}
 	if cfgPath != defaultCfg {
 		d.autostart = append(d.autostart, "-config", cfgPath)
 	}
@@ -169,6 +196,8 @@ func (d *desk) Edit(path string) error      { return desktop.Edit(path) }
 func (d *desk) Autostart() bool             { return desktop.Autostart() }
 func (d *desk) SetAutostart(on bool) error  { return desktop.SetAutostart(on, d.autostart) }
 
+func (d *desk) RunElevated(args ...string) error { return desktop.RunElevated(args...) }
+
 // PickFiles starts in the replay folder.
 func (d *desk) PickFiles() []string { return desktop.PickFiles(d.replayDir()) }
 
@@ -182,6 +211,56 @@ func (d *desk) Platform() app.Platform {
 		SaveKey:   d.saveKey,
 		QuickSort: d.pop.Interactive(),
 	}
+}
+
+// enableStatsAPI switches the Stats API on in the given ini files, for the
+// interface, which starts the tool with administrator rights for this.
+func enableStatsAPI(paths []string, port int) int {
+	code := 0
+	for _, p := range paths {
+		if err := game.EnableStatsAPI(p, port); err != nil {
+			desktop.ShowError("Stats API einschalten: " + err.Error())
+			code = 1
+		}
+	}
+	return code
+}
+
+// writeInstance notes where the running tool's interface is, so a second
+// start can open it instead of starting another copy.
+func writeInstance(path, uiURL string) error {
+	data, _ := json.Marshal(map[string]string{"url": uiURL})
+	return os.WriteFile(path, data, 0o600)
+}
+
+// showRunning asks the running copy to open its interface.
+func showRunning(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var inst struct{ URL string }
+	if err := json.Unmarshal(data, &inst); err != nil {
+		return err
+	}
+	u, err := url.Parse(inst.URL)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, u.Scheme+"://"+u.Host+"/api/show", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Token", u.Query().Get("k"))
+	res, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d", res.StatusCode)
+	}
+	return nil
 }
 
 // openLog sends log output to path as well as the terminal, if there is one,

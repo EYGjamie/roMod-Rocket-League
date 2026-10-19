@@ -5,12 +5,14 @@ package game
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -131,6 +133,44 @@ func rocketLeagueFocused() bool {
 
 func beep() {
 	procMessageBeep.Call(mbIconExclamation)
+}
+
+// GameDirs returns where the game may be installed: every Steam library and
+// the folder the Epic Games Launcher installed it to, plus their defaults.
+func GameDirs() []string {
+	var dirs []string
+	var roots []string
+	for _, k := range []struct {
+		root  registry.Key
+		path  string
+		value string
+	}{
+		{registry.CURRENT_USER, `Software\Valve\Steam`, "SteamPath"},
+		{registry.LOCAL_MACHINE, `SOFTWARE\WOW6432Node\Valve\Steam`, "InstallPath"},
+	} {
+		if key, err := registry.OpenKey(k.root, k.path, registry.QUERY_VALUE); err == nil {
+			if v, _, err := key.GetStringValue(k.value); err == nil && v != "" {
+				roots = append(roots, filepath.Clean(v))
+			}
+			key.Close()
+		}
+	}
+	if pf := os.Getenv("ProgramFiles(x86)"); pf != "" {
+		roots = append(roots, filepath.Join(pf, "Steam"))
+	}
+	for _, root := range roots {
+		for _, lib := range append([]string{root}, steamLibraryFolders(root)...) {
+			dirs = append(dirs, filepath.Join(lib, "steamapps", "common", "rocketleague"))
+		}
+	}
+	if data := os.Getenv("ProgramData"); data != "" {
+		manifests, _ := filepath.Glob(filepath.Join(data, "Epic", "EpicGamesLauncher", "Data", "Manifests", "*.item"))
+		dirs = append(dirs, epicInstalls(manifests, filepath.Join(data, "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat"))...)
+	}
+	if pf := os.Getenv("ProgramFiles"); pf != "" {
+		dirs = append(dirs, filepath.Join(pf, "Epic Games", "rocketleague"))
+	}
+	return unique(dirs)
 }
 
 // DefaultDemoDirs returns the replay folders of the Steam and Epic versions

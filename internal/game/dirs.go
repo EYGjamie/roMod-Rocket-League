@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -68,26 +67,48 @@ func steamRoots(home string) []string {
 	}
 }
 
-var vdfPath = regexp.MustCompile(`"path"\s+"((?:[^"\\]|\\.)*)"`)
-
 // steamLibraries returns the Steam installations and the further library
 // folders listed in their libraryfolders.vdf, each once.
 func steamLibraries(home string) []string {
-	unescape := strings.NewReplacer(`\\`, `\`, `\"`, `"`)
 	var libs []string
 	for _, root := range steamRoots(home) {
 		if fi, err := os.Stat(root); err != nil || !fi.IsDir() {
 			continue
 		}
 		libs = append(libs, root)
-		for _, vdf := range []string{filepath.Join(root, "steamapps", "libraryfolders.vdf"), filepath.Join(root, "config", "libraryfolders.vdf")} {
-			data, _ := os.ReadFile(vdf)
-			for _, m := range vdfPath.FindAllStringSubmatch(string(data), -1) {
-				libs = append(libs, unescape.Replace(m[1]))
-			}
-		}
+		libs = append(libs, steamLibraryFolders(root)...)
 	}
 	return unique(libs)
+}
+
+// installInPrefix are the game's install folders in a Wine prefix, as glob
+// patterns: the Epic Games Launcher's and Steam's for Windows.
+var installInPrefix = []string{
+	"drive_c/Program Files/Epic Games/rocketleague",
+	"drive_c/Program Files (x86)/Steam/steamapps/common/rocketleague",
+}
+
+// installDirs returns the game's install folders: in every Steam library,
+// where Heroic or Legendary installed it, and in the Wine prefixes whose
+// TAGame folders the patterns find (two levels up is the prefix).
+func installDirs(home string, patterns func(home string) []string, heroic ...string) []string {
+	var dirs []string
+	for _, lib := range steamLibraries(home) {
+		dirs = append(dirs, filepath.Join(lib, "steamapps", "common", "rocketleague"))
+	}
+	dirs = append(dirs, heroicInstalls(heroic...)...)
+	dirs = append(dirs, filepath.Join(home, "Games", "Heroic", "rocketleague"))
+	for _, p := range patterns(home) {
+		prefix, ok := strings.CutSuffix(filepath.ToSlash(p), "/"+tagameInPrefix)
+		if !ok {
+			continue
+		}
+		for _, in := range installInPrefix {
+			matches, _ := filepath.Glob(filepath.FromSlash(prefix + "/" + globEscape(in)))
+			dirs = append(dirs, matches...)
+		}
+	}
+	return unique(dirs)
 }
 
 // findDemoDirs expands patterns of TAGame folders and returns the replay
@@ -106,23 +127,6 @@ func findDemoDirs(patterns []string) []string {
 		}
 	}
 	return unique(dirs)
-}
-
-// unique drops paths that lead to the same place as an earlier one.
-func unique(paths []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, p := range paths {
-		key := filepath.Clean(p)
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			key = real
-		}
-		if !seen[key] {
-			seen[key] = true
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 // globEscape quotes the pattern characters in a fixed part of a pattern.

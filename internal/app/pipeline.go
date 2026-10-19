@@ -70,6 +70,8 @@ func (a *App) uploadFailed(f store.File) {
 		Disable: func() { a.UpdateSettings([]byte(`{"notify_failed":false}`)) }}
 	if f.State == store.Failed {
 		t.Actions = append([]ToastAction{{Label: "Jetzt erneut", Run: func() { a.queue.Retry(f.Name) }}}, t.Actions...)
+	} else { // retrying a rejected file rarely helps
+		t.Actions = append([]ToastAction{{Label: "Ignorieren", Run: func() { a.queue.Ignore(f.Name) }}}, t.Actions...)
 	}
 	a.toast(t)
 }
@@ -418,7 +420,7 @@ func (q *quickSorter) pick(seq, choice int) {
 
 	switch {
 	case choice == 4:
-		q.a.store.PutDecision(store.Decision{ReplayID: p.replay.ID, PlaylistID: p.replay.PlaylistID, Manual: true})
+		q.a.store.PutDecision(store.Decision{ReplayID: p.replay.ID, PlaylistID: rules.Canonical(p.replay.PlaylistID), Manual: true})
 		q.a.events.publish("inbox")
 		q.a.notifyUploaded(p.replay, "")
 	case choice >= 1 && choice <= len(p.options):

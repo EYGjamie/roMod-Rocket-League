@@ -100,7 +100,7 @@ func (a *App) newViewCtx() viewCtx {
 
 func (vc viewCtx) replay(r store.Replay) replayView {
 	v := replayView{Kind: "replay", ID: r.ID, Own: r.Own, Uploader: r.UploaderName, Title: r.Title, Date: r.Date,
-		Created: r.Created, PlaylistID: r.PlaylistID, Playlist: rules.PlaylistName(r.PlaylistID), Map: r.MapName,
+		Created: r.Created, PlaylistID: rules.Canonical(r.PlaylistID), Playlist: rules.PlaylistName(r.PlaylistID), Map: r.MapName,
 		Duration: r.Duration, Overtime: r.Overtime, Visibility: r.Visibility, GroupID: r.GroupID, Group: vc.paths[r.GroupID],
 		MyTeam: r.MyTeam(vc.me), Result: r.Result(vc.me), File: r.File, Local: r.File != "" && vc.local[r.File],
 		HasDetail: r.HasDetail, Link: "https://ballchasing.com/replay/" + r.ID,
@@ -147,7 +147,7 @@ func (vc viewCtx) matches(r store.Replay, q listQuery, since time.Time) bool {
 	switch {
 	case q.Origin == "own" && !r.Own, q.Origin == "mates" && r.Own:
 		return false
-	case q.Playlist != "" && r.PlaylistID != q.Playlist:
+	case q.Playlist != "" && rules.Canonical(r.PlaylistID) != rules.Canonical(q.Playlist):
 		return false
 	case q.Group == "unsorted" && (!r.Own || r.GroupID != ""):
 		return false

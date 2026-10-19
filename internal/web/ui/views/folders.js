@@ -1,4 +1,4 @@
-import { api, h, ico, fill, fmt, run, flash, menu, debounce, confirmDialog, promptDialog, pickFolder, moveTo, loadGroups, tree, groupPath, visibilityNames, resultBadge, scoreLine, mates } from '../lib.js';
+import { api, h, ico, fill, fmt, run, flash, menu, debounce, confirmDialog, promptDialog, pickFolder, moveTo, syncNow, loadGroups, tree, groupPath, visibilityNames, resultBadge, scoreLine, mates } from '../lib.js';
 
 const open = new Set();
 
@@ -19,7 +19,7 @@ export async function mount(root, ctx) {
       h('div', { class: 'head' }, h('h1', null, 'Ordner'),
         h('button', { class: 'btn btn-ghost btn-icon', 'aria-label': 'Neuer Ordner', title: 'Neuer Ordner', onclick: () => newFolder('') }, ico('folder-simple-plus')),
         h('button', { class: 'btn btn-ghost btn-icon', 'aria-label': 'Mit ballchasing abgleichen', title: 'Mit ballchasing abgleichen',
-          onclick: () => run(() => api('/api/sync', { method: 'POST', body: { full: true } }), 'Abgleich mit ballchasing gestartet') }, ico('arrows-clockwise'))),
+          onclick: syncNow }, ico('arrows-clockwise'))),
       h('label', { class: 'search flat' }, ico('magnifying-glass'),
         h('input', { type: 'search', placeholder: 'Ordner filtern', 'aria-label': 'Ordner filtern', oninput: e => { filter = e.target.value.trim().toLowerCase(); renderTree(); } })),
       h('div', { class: 'hsep' }), nodes, sync),
@@ -28,7 +28,7 @@ export async function mount(root, ctx) {
   async function newFolder(parent) {
     const name = await promptDialog(parent ? 'Neuer Unterordner' : 'Neuer Ordner', parent ? `Name des Unterordners in „${groupPath(groups, parent)}“` : 'Name des Ordners auf oberster Ebene');
     if (!name) return;
-    const g = await run(() => api('/api/groups', { method: 'POST', body: { name, parent } }), 'Ordner angelegt');
+    const g = await run(() => api('/api/groups', { method: 'POST', body: { name, parent } }), 'Ordner angelegt', `Ordner „${name}“ wird angelegt`);
     if (g) { if (parent) open.add(parent); select(g.id); }
   }
 
@@ -106,7 +106,7 @@ export async function mount(root, ctx) {
             { label: 'Ordner löschen …', icon: 'trash', danger: true, run: async () => {
               if (g.indirect > 0 || subs.length) return flash('Nur leere Ordner ohne Unterordner lassen sich löschen.', 'err');
               if (await confirmDialog('Ordner löschen', `„${g.name}“ wird auf ballchasing gelöscht.`, 'Löschen', true)
-                && await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht')) select(g.parent);
+                && await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht', `Ordner „${g.name}“ wird gelöscht`)) select(g.parent);
             } },
           ], { width: 220 }) }, ico('dots-three')))),
       subs.length || items.length ? h('div', { class: 'rows' },
@@ -122,7 +122,7 @@ export async function mount(root, ctx) {
           if (f && await moveTo(ids, f)) sel.clear();
         } }, ico('folder-simple'), 'Verschieben'),
         h('button', { class: 'btn btn-secondary', onclick: e => menu(e.currentTarget, Object.entries(visibilityNames).map(([v, label]) => ({ label, run: async () => {
-          const res = await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids, visibility: v } }));
+          const res = await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids, visibility: v } }), null, `Sichtbarkeit von ${ids.length === 1 ? '1 Replay' : ids.length + ' Replays'} wird geändert`);
           if (res) flash(res.errors.length ? `${res.done} geändert, ${res.errors.length} fehlgeschlagen: ${res.errors[0]}` : `${res.done} Replays auf „${label}“`, res.errors.length ? 'err' : 'ok');
         } })), { width: 180 }) }, ico('eye'), 'Sichtbarkeit'),
         h('span', { class: 'vsep' }),

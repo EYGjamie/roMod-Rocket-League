@@ -92,9 +92,12 @@ export const visibilityNames = { public: 'Öffentlich', unlisted: 'Nicht geliste
 // tierNames are the patron tiers of ballchasing.
 export const tierNames = { regular: 'ohne Patreon', gold: 'Gold', diamond: 'Diamond', champion: 'Champion', gc: 'Grand Champion' };
 
+// The server sends retired playlists (Solo Standard, the casual extra modes)
+// as their successor, so only playlists the game still has appear.
 const playlistNames = {
-  'ranked-duels': 'Ranked 1s', 'ranked-doubles': 'Ranked 2s', 'ranked-standard': 'Ranked 3s', 'ranked-solo-standard': 'Solo 3s',
+  'ranked-duels': 'Ranked 1s', 'ranked-doubles': 'Ranked 2s', 'ranked-standard': 'Ranked 3s',
   'unranked-duels': 'Casual 1s', 'unranked-doubles': 'Casual 2s', 'unranked-standard': 'Casual 3s', 'unranked-chaos': 'Casual 4s',
+  'ranked-hoops': 'Hoops', 'ranked-rumble': 'Rumble', 'ranked-dropshot': 'Dropshot', 'ranked-snowday': 'Snow Day',
   tournament: 'Turnier', private: 'Privat',
 };
 // plName is the short name of a playlist, else the server's name.
@@ -117,7 +120,7 @@ export function system(state) {
 }
 export const stateNames = {
   queued: 'wartet', uploading: 'lädt hoch', processing: 'wird verarbeitet', done: 'fertig',
-  retry: 'neuer Versuch', failed: 'fehlgeschlagen', rejected: 'abgelehnt', seeded: 'nicht hochgeladen',
+  retry: 'neuer Versuch', failed: 'fehlgeschlagen', rejected: 'abgelehnt', seeded: 'nicht hochgeladen', ignored: 'ignoriert',
 };
 
 // --- feedback ---
@@ -129,16 +132,51 @@ export function flash(text, kind = 'ok') {
   setTimeout(() => el.remove(), kind === 'err' ? 7000 : 5000);
 }
 
-// run executes an async action and reports errors.
-export async function run(fn, okText) {
+// busy shows an info card until the returned function is called, for
+// actions that wait on ballchasing. It appears after delay ms, so quick
+// answers do not flicker.
+export function busy(text, sub = 'Anfrage an ballchasing läuft …', delay = 250) {
+  const el = h('div', { class: 'toast busy' }, h('i', { class: 'ring', 'aria-hidden': 'true' }), h('span', null, text, h('small', null, sub)));
+  const t = setTimeout(() => document.getElementById('flash').append(el), delay);
+  return () => { clearTimeout(t); el.remove(); };
+}
+
+// run executes an async action and reports errors; wait, if given, is the
+// text of the info card shown while it runs.
+export async function run(fn, okText, wait) {
+  const done = wait ? busy(wait) : null;
   try {
     const r = await fn();
+    done?.();
     if (okText) flash(typeof okText === 'function' ? okText(r) : okText);
     return r;
   } catch (e) {
+    done?.();
     flash(e.message, 'err');
     return undefined;
   }
+}
+
+// syncNow starts a full sync with ballchasing. Its info card stays until
+// the server reports the sync done.
+let syncing = false;
+export async function syncNow() {
+  if (syncing || !await run(() => api('/api/sync', { method: 'POST', body: { full: true } }))) return;
+  syncing = true;
+  const done = busy('Abgleich mit ballchasing', 'Ordner und Replays werden geladen …', 0);
+  const start = Date.now();
+  const check = async () => {
+    const s = await api('/api/state').catch(() => null);
+    const over = s && !s.syncing && Date.now() - start > 1500; // the sync may start a moment later
+    if (over || Date.now() - start > 10 * 60e3) {
+      done();
+      syncing = false;
+      if (over) flash('Abgleich mit ballchasing abgeschlossen');
+      return;
+    }
+    setTimeout(check, 1000);
+  };
+  setTimeout(check, 1000);
 }
 
 // modal shows a dialog; build receives a close function and returns the
@@ -294,7 +332,7 @@ export async function pickFolder(anchor, { suggestions = [], current = '' } = {}
       { section: 'Alle Ordner' }, ...all, all.length ? '-' : null,
       { label: 'Neuer Ordner', icon: 'folder-simple-plus', accent: true, run: async () => {
         const name = await promptDialog('Neuer Ordner', 'Name des Ordners auf oberster Ebene');
-        const g = name && await run(() => api('/api/groups', { method: 'POST', body: { name, parent: '' } }));
+        const g = name && await run(() => api('/api/groups', { method: 'POST', body: { name, parent: '' } }), null, 'Ordner wird angelegt');
         resolve(g ? { id: g.id, name } : null);
       } },
     ], { onDismiss: () => resolve(null) });
@@ -302,9 +340,10 @@ export async function pickFolder(anchor, { suggestions = [], current = '' } = {}
 }
 
 // moveTo moves replays into a folder and reports it; resolves to the number
-// moved. quiet leaves the success message to the caller.
+// moved. quiet leaves the info card and the success message to the caller.
 export async function moveTo(ids, f, quiet) {
-  const res = await run(() => api('/api/replays/move', { method: 'POST', body: { ids, group: f.id } }));
+  const res = await run(() => api('/api/replays/move', { method: 'POST', body: { ids, group: f.id } }), null,
+    quiet ? null : (ids.length === 1 ? 'Replay wird' : ids.length + ' Replays werden') + ` nach „${f.name}“ verschoben`);
   if (!res) return 0;
   if (res.errors.length) flash(`${res.done} verschoben, ${res.errors.length} fehlgeschlagen: ${res.errors[0]}`, 'err');
   else if (!quiet) flash(`${res.done === 1 ? 'Replay' : res.done + ' Replays'} nach „${f.name}“ verschoben`);

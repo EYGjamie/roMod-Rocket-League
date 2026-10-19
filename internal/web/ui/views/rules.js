@@ -1,13 +1,17 @@
 import { api, h, ico, fill, run, flash, debounce, seg, sw, promptDialog, loadGroups, groupPath, folderOptions, plName } from '../lib.js';
 
-const extra = ['hoops', 'ranked-hoops', 'rumble', 'ranked-rumble', 'dropshot', 'ranked-dropshot', 'snowday', 'ranked-snowday', 'heatseeker', 'dropshot-rumble', 'rocketlabs'];
+// The extra modes only exist as ranked now; the server leaves out retired
+// playlists and counts them as their successor.
+const extra = ['ranked-hoops', 'ranked-rumble', 'ranked-dropshot', 'ranked-snowday'];
+const limited = ['heatseeker', 'dropshot-rumble'];
 function playlistGroups(playlists) {
   return [
     ['Ranked', playlists.filter(p => p.id.startsWith('ranked-') && !extra.includes(p.id))],
     ['Casual', playlists.filter(p => p.id.startsWith('unranked-'))],
     ['Extra', playlists.filter(p => extra.includes(p.id))],
+    ['Zeitweise', playlists.filter(p => limited.includes(p.id))],
     ['Sonstige', playlists.filter(p => ['tournament', 'private', 'season', 'offline'].includes(p.id))],
-  ];
+  ].filter(([, list]) => list.length);
 }
 // chipName drops the group from the name: "Ranked 2s" is "2s" under Ranked.
 const chipName = p => plName(p.id, p.name).replace(/^(Ranked|Casual) (?=\d)/, '');

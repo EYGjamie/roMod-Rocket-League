@@ -1,7 +1,7 @@
 import { api, h, ico, fill, fmt, run, flash, seg, debounce, visibilityNames, groupPath, folderOptions, system, tierNames, plName } from '../lib.js';
-import { tokenForm, tokenHint, identityEditor, keyCapture, testKeyButton, saveKeyMissing } from './settings.js';
+import { tokenForm, tokenHint, identityEditor, keyCapture, testKeyButton, saveKeyMissing, statsAPIBox } from './settings.js';
 
-const stepNames = ['ballchasing', 'Replay-Ordner', 'Speichern-Taste', 'Upload & Ordner', 'Alte Replays'];
+const stepNames = ['ballchasing', 'Replay-Ordner', 'Rocket League', 'Upload & Ordner', 'Alte Replays'];
 
 export async function mount(root, ctx) {
   const sys = system(ctx.state);
@@ -13,6 +13,7 @@ export async function mount(root, ctx) {
   let backfill = '30';
   const box = h('div', { class: 'wizard' });
   const ids = h('div');
+  const statsBox = statsAPIBox(sys);
   root.append(h('div', { class: 'wizard-page' }, box));
 
   const save = async patch => { settings = await run(() => api('/api/settings', { method: 'PUT', body: patch })) || settings; };
@@ -27,6 +28,7 @@ export async function mount(root, ctx) {
     step = n;
     try { sessionStorage.setItem('einrichtung', String(n)); } catch { /* private mode */ }
     [info, settings] = await Promise.all([api('/api/setup'), api('/api/settings')]);
+    if (n === 2) statsBox.refresh();
     render();
   }
 
@@ -56,17 +58,8 @@ export async function mount(root, ctx) {
           go(1);
         } }),
     ], () => go(2)],
-    () => [sys.save_key ? 'Welche Taste speichert im Spiel Replays?' : 'Rocket League verbinden', [
-      ctx.state.stats_api ? h('div', { class: 'ctl n3', style: { gap: '6px', fontSize: '13px' } }, h('span', { class: 'led' }), 'Rocket League ist verbunden')
-        : h('div', { class: 'note warn' },
-          h('div', null, 'Rocket League ist nicht verbunden. Läuft das Spiel, ist die Stats API wahrscheinlich aus. Spiel beenden, im Installationsordner ',
-            sys.windows ? 'TAGame\\Config\\TAStatsAPI.ini' : 'TAGame/Config/TAStatsAPI.ini', ' öffnen und eintragen:'),
-          h('pre', null, '[TAGame.MatchStatsExporter_TA]\nPacketSendRate=1\nPort=49123'),
-          h('div', { class: 'n4' }, {
-            windows: 'Die Datei liegt meist unter Program Files und braucht zum Speichern Administratorrechte.',
-            linux: 'Bei Steam liegt der Installationsordner unter steamapps/common/rocketleague in der Steam-Bibliothek, meist ~/.local/share/Steam.',
-            darwin: 'Der Installationsordner liegt in der Flasche von CrossOver oder Whisky unter drive_c.',
-          }[sys.os] || '')),
+    () => [sys.save_key ? 'Rocket League verbinden und Speichern-Taste wählen' : 'Rocket League verbinden', [
+      statsBox,
       sys.save_key ? h('div', { class: 'ctl' }, keyCapture(settings.mark_key, code => save({ mark_key: code }), true), ...testKeyButton(true)) : saveKeyMissing(sys),
       sys.save_key ? h('span', { class: 'sm n5' }, 'Kurz nach dem Anstoß drückt das Tool diese Taste einmal. Standard ist die Rücktaste.') : null,
     ], () => go(3)],
@@ -119,7 +112,8 @@ export async function mount(root, ctx) {
   };
   document.addEventListener('keydown', onKey);
   render();
-  ctx.on('ui:state', debounce(() => { if (step === 2) render(); }, 500));
+  let connected = ctx.state.stats_api;
+  ctx.on('ui:state', debounce(() => { if (ctx.state.stats_api !== connected) { connected = ctx.state.stats_api; statsBox.refresh(); } }, 500));
   ctx.on('state', debounce(() => { if (step === 0 && info.account.status === 'ok') showIDs(); }, 1500));
   ctx.on('groups', debounce(() => { if (step === 3) go(3); }, 500));
   return { destroy: () => document.removeEventListener('keydown', onKey) };

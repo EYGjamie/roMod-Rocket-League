@@ -213,10 +213,11 @@ func (a *App) Stats(days int) Stats {
 			key = month(r.Date)
 		}
 		p := periods[key]
-		pl := playlists[r.PlaylistID]
+		id := rules.Canonical(r.PlaylistID)
+		pl := playlists[id]
 		if pl == nil {
-			pl = &Tally{ID: r.PlaylistID, Name: rules.PlaylistName(r.PlaylistID)}
-			playlists[r.PlaylistID] = pl
+			pl = &Tally{ID: id, Name: rules.PlaylistName(id)}
+			playlists[id] = pl
 		}
 		mp := maps[r.MapName]
 		if mp == nil {

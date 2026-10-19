@@ -17,6 +17,7 @@ const (
 	Retry      = "retry"      // failed, another attempt at NextTry
 	Failed     = "failed"     // failed three times, no more automatic attempts
 	Rejected   = "rejected"   // ballchasing cannot process the file
+	Ignored    = "ignored"    // failed, and the user does not want it uploaded
 )
 
 // File is a replay file the tool knows about.

@@ -43,15 +43,48 @@ func TestFactsOf(t *testing.T) {
 
 func TestDefaults(t *testing.T) {
 	ds := Defaults()
-	if len(ds) != 20 {
-		t.Errorf("%d default rules, want 20", len(ds))
+	if len(ds) != 15 {
+		t.Errorf("%d default rules, want 15", len(ds))
 	}
-	r, ok := Match(ds, Facts{PlaylistID: "ranked-solo-standard"})
-	if !ok || r.TargetName != "3s Ranked" {
-		t.Errorf("solo standard goes to %q", r.TargetName)
+	for retired, want := range map[string]string{"ranked-solo-standard": "3s Ranked", "hoops": "Hoops", "snowday": "Snow Day"} {
+		if r, ok := Match(ds, Facts{PlaylistID: retired}); !ok || r.TargetName != want {
+			t.Errorf("%s goes to %q, want %q", retired, r.TargetName, want)
+		}
 	}
 	if _, ok := Match(ds, Facts{PlaylistID: "offline"}); ok {
 		t.Error("offline games must go to the inbox")
+	}
+	for _, r := range ds {
+		for _, p := range r.Playlists {
+			if Canonical(p) != p {
+				t.Errorf("default rule offers the retired playlist %s", p)
+			}
+		}
+	}
+}
+
+func TestRetiredPlaylists(t *testing.T) {
+	for _, p := range Playlists {
+		if Canonical(p.ID) != p.ID {
+			t.Errorf("%s is retired but offered", p.ID)
+		}
+	}
+	// a rule written for the casual variant still takes the ranked games
+	old := store.Rule{Enabled: true, Playlists: []string{"rumble"}, TargetName: "Rumble"}
+	if !Matches(old, Facts{PlaylistID: "ranked-rumble"}) {
+		t.Error("rule on rumble misses ranked-rumble")
+	}
+	if got := PlaylistName("ranked-solo-standard"); got != "Ranked Standard (3s)" {
+		t.Errorf("PlaylistName(solo standard) = %q", got)
+	}
+	if got := CanonicalList([]string{"ranked-standard", "ranked-solo-standard", "hoops"}); !slices.Equal(got, []string{"ranked-standard", "ranked-hoops"}) {
+		t.Errorf("CanonicalList() = %v", got)
+	}
+	// decisions in the old playlist count for the new one
+	groups := map[string]string{"g-hoops": "Hoops"}
+	got := Suggest(Facts{PlaylistID: "ranked-hoops"}, nil, []store.Decision{{PlaylistID: "hoops", GroupID: "g-hoops"}}, groups, nil, 1)
+	if len(got) != 1 || got[0].GroupID != "g-hoops" || got[0].Reason != "wie 1 frühere Spiele in Ranked Hoops" {
+		t.Errorf("Suggest() = %+v", got)
 	}
 }
 

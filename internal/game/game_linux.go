@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -19,6 +20,19 @@ import (
 // every Steam library (also Flatpak and Snap) and in the Wine prefixes of
 // Heroic, Lutris and Bottles.
 func DefaultDemoDirs() ([]string, error) { return searchDemoDirs(linuxPatterns) }
+
+// GameDirs returns where the game may be installed: Steam libraries,
+// Heroic (also as Flatpak) and Legendary, and the Wine prefixes.
+func GameDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return installDirs(home, linuxPatterns,
+		filepath.Join(home, ".config", "heroic", "legendaryConfig", "legendary", "installed.json"),
+		filepath.Join(home, ".var", "app", "com.heroicgameslauncher.hgl", "config", "heroic", "legendaryConfig", "legendary", "installed.json"),
+		filepath.Join(home, ".config", "legendary", "installed.json"))
+}
 
 // RocketLeagueRunning reports whether the game process exists.
 func RocketLeagueRunning() bool { return procRunning("/proc") }

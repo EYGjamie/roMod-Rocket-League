@@ -5,10 +5,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -37,17 +39,18 @@ func (demoDesktop) OpenBrowser(t string)     { log.Printf("[Browser] %s", t) }
 func (demoDesktop) ShowQuickSort(q app.QuickSort, pick func(int)) {
 	log.Printf("[Einordnen] %s → %s %v", q.Title, q.Target, q.Options)
 }
-func (demoDesktop) HideQuickSort()            {}
-func (demoDesktop) Toast(t app.Toast)         { log.Printf("[Hinweis] %s: %s", t.Title, t.Body) }
-func (demoDesktop) SetTray(p, f bool)         {}
-func (demoDesktop) Recycle(path string) error { return os.Remove(path) }
-func (demoDesktop) Reveal(string) error       { return nil }
-func (demoDesktop) OpenFolder(string) error   { return nil }
-func (demoDesktop) Edit(string) error         { return nil }
-func (demoDesktop) PickFiles() []string       { return nil }
-func (demoDesktop) SetAutostart(bool) error   { return nil }
-func (demoDesktop) Autostart() bool           { return true }
-func (d demoDesktop) Platform() app.Platform  { return d.platform }
+func (demoDesktop) HideQuickSort()              {}
+func (demoDesktop) Toast(t app.Toast)           { log.Printf("[Hinweis] %s: %s", t.Title, t.Body) }
+func (demoDesktop) SetTray(p, f bool)           {}
+func (demoDesktop) Recycle(path string) error   { return os.Remove(path) }
+func (demoDesktop) Reveal(string) error         { return nil }
+func (demoDesktop) OpenFolder(string) error     { return nil }
+func (demoDesktop) Edit(string) error           { return nil }
+func (demoDesktop) PickFiles() []string         { return nil }
+func (demoDesktop) SetAutostart(bool) error     { return nil }
+func (demoDesktop) Autostart() bool             { return true }
+func (demoDesktop) RunElevated(...string) error { return errors.ErrUnsupported }
+func (d demoDesktop) Platform() app.Platform    { return d.platform }
 
 // platforms are what each system offers in a usual setup.
 var platforms = map[string]app.Platform{
@@ -56,8 +59,20 @@ var platforms = map[string]app.Platform{
 	"darwin":  {OS: "darwin", Tray: true, Autostart: true},
 }
 
+// slow delays every request to the fake, to see the interface wait.
+type slow struct {
+	next  http.RoundTripper
+	delay time.Duration
+}
+
+func (s slow) RoundTrip(r *http.Request) (*http.Response, error) {
+	time.Sleep(s.delay)
+	return s.next.RoundTrip(r)
+}
+
 func main() {
 	setup := flag.Bool("setup", false, "mit dem Einrichtungsassistenten starten")
+	delay := flag.Duration("slow", 0, "jede Anfrage an ballchasing so lange verzögern, z. B. 2s")
 	def := runtime.GOOS
 	if _, ok := platforms[def]; !ok {
 		def = "linux"
@@ -92,6 +107,14 @@ func main() {
 		os.Chtimes(old, t, t)
 	}
 
+	// a game installation with the Stats API off, instead of the real one;
+	// its port is the unused one below, so switching it on never reaches a
+	// running game
+	gameDir := filepath.Join(dir, "rocketleague")
+	os.MkdirAll(filepath.Join(gameDir, "TAGame", "Config"), 0o755)
+	os.WriteFile(filepath.Join(gameDir, "TAGame", "Config", "DefaultStatsAPI.ini"),
+		[]byte("[TAGame.MatchStatsExporter_TA]\r\nPort=1\r\nWebPort=49124\r\nPacketSendRate=0"), 0o644)
+
 	os.Unsetenv("BALLCHASING_TOKEN")
 	cfg := config.Default()
 	if !*setup {
@@ -100,11 +123,16 @@ func main() {
 	}
 	cfg.DemoDirs = []string{demos}
 	cfg.StatsAPI = "127.0.0.1:1"
+	cfg.AutoMark = false // never a key press in a real game
 	cfgPath := filepath.Join(dir, "config.json")
 	config.Save(cfgPath, cfg)
 
+	client := fake.Client()
+	if *delay > 0 {
+		client.Transport = slow{client.Transport, *delay}
+	}
 	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: filepath.Join(dir, "log.txt"), Desktop: demoDesktop{platform},
-		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true})
+		BaseURL: fake.URL, HTTPClient: client, Unpaced: true, GameDirs: func() []string { return []string{gameDir} }})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -120,13 +148,16 @@ func main() {
 }
 
 // addRules opens the demo database for a moment and adds rules for some
-// playlists, so the rules page and the quick-sort flow have something.
+// playlists, so the rules page and the quick-sort flow have something, and
+// two failed uploads.
 func addRules(dir, threes string) {
 	st, err := store.Open(filepath.Join(dir, "auto-replay-upload.db"))
 	if err != nil {
 		return
 	}
 	defer st.Close()
+	st.PutFile(store.File{Name: "kaputt.replay", Dir: dir, State: store.Rejected, Error: "von ballchasing abgelehnt: failed to parse replay"})
+	st.PutFile(store.File{Name: "weg.replay", Dir: dir, State: store.Failed, Attempts: 3, Error: "Datei nicht mehr vorhanden"})
 	for _, r := range []store.Rule{
 		{Enabled: true, Playlists: []string{"ranked-standard"}, Players: []string{"steam:3"}, TargetID: threes},
 		{Enabled: true, Playlists: []string{"ranked-doubles"}, TargetName: "2s Ranked"},

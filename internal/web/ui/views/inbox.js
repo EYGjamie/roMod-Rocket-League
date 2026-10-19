@@ -1,4 +1,4 @@
-import { api, h, ico, fill, fmt, flash, debounce, pickFolder, moveTo, plName, resultBadge, scoreLine, mates } from '../lib.js';
+import { api, h, ico, fill, fmt, flash, busy, debounce, pickFolder, moveTo, plName, resultBadge, scoreLine, mates } from '../lib.js';
 
 const chosen = new Map(); // replay ID -> {id, name} picked by hand
 
@@ -26,7 +26,12 @@ export async function mount(root, ctx) {
       by.get(t.id).ids.push(it.replay.id);
     }
     let n = 0;
-    for (const { f, ids } of by.values()) n += await move(ids, f, true);
+    const done = busy(`${list.length} Replays werden einsortiert`);
+    try {
+      for (const { f, ids } of by.values()) n += await move(ids, f, true);
+    } finally {
+      done();
+    }
     if (n) flash(`${n} Replays einsortiert`);
     load();
   }

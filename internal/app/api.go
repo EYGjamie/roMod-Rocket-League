@@ -39,6 +39,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("GET /api/queue", a.apiQueue)
 	mux.HandleFunc("POST /api/queue/retry", a.apiRetry)
 	mux.HandleFunc("POST /api/queue/retry-all", a.apiRetryAll)
+	mux.HandleFunc("POST /api/queue/ignore", a.apiIgnoreFiles)
 	mux.HandleFunc("POST /api/upload", a.apiUpload)
 	mux.HandleFunc("POST /api/open-folder", a.apiOpenFolder)
 	mux.HandleFunc("POST /api/open-log", a.apiOpenLog)
@@ -76,6 +77,9 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("DELETE /api/token", a.apiRemoveToken)
 	mux.HandleFunc("POST /api/autostart", a.apiAutostart)
 	mux.HandleFunc("POST /api/test-key", a.apiTestKey)
+	mux.HandleFunc("GET /api/stats-api", a.apiStatsAPI)
+	mux.HandleFunc("POST /api/stats-api/enable", a.apiEnableStatsAPI)
+	mux.HandleFunc("POST /api/show", a.apiShow)
 	mux.HandleFunc("GET /api/identities", a.apiIdentities)
 	mux.HandleFunc("PUT /api/identities", a.apiSetIdentities)
 
@@ -266,6 +270,12 @@ func (a *App) apiOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// apiShow opens the interface; a second start of the tool asks for it.
+func (a *App) apiShow(w http.ResponseWriter, r *http.Request) {
+	a.desk.ShowOverlay("")
+	ok(w)
+}
+
 func (a *App) apiPause(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Watch *bool `json:"watch"`
@@ -288,7 +298,7 @@ func (a *App) apiPause(w http.ResponseWriter, r *http.Request) {
 // --- queue ---
 
 func (a *App) apiQueue(w http.ResponseWriter, r *http.Request) {
-	files, err := a.store.Files(store.Queued, store.Uploading, store.Processing, store.Retry, store.Failed, store.Rejected)
+	files, err := a.store.Files(store.Queued, store.Uploading, store.Processing, store.Retry, store.Failed, store.Rejected, store.Ignored)
 	if err != nil {
 		fail(w, err)
 		return
@@ -325,6 +335,31 @@ func (a *App) apiRetryAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"queued": n + len(files)})
+}
+
+// apiIgnoreFiles sets failed files aside for good; all takes every failed
+// one.
+func (a *App) apiIgnoreFiles(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Names []string `json:"names"`
+		All   bool     `json:"all"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.All {
+		files, _ := a.store.Files(store.Failed, store.Rejected)
+		for _, f := range files {
+			in.Names = append(in.Names, f.Name)
+		}
+	}
+	for _, name := range in.Names {
+		if err := a.queue.Ignore(name); err != nil {
+			fail(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"ignored": len(in.Names)})
 }
 
 // apiUpload stores files sent from the page and queues them.
@@ -845,6 +880,7 @@ func (a *App) apiRules(w http.ResponseWriter, r *http.Request) {
 	names := a.playerNames()
 	views := []ruleView{}
 	for _, rule := range ruleList {
+		rule.Playlists = rules.CanonicalList(rule.Playlists) // retired playlists show as their successor
 		v := ruleView{Rule: rule, Target: a.groupPath(groups, rule.TargetID)}
 		if v.Target == "" {
 			v.Target = rule.TargetName
@@ -921,6 +957,7 @@ func (a *App) apiSaveRule(w http.ResponseWriter, r *http.Request) {
 	if id := r.PathValue("id"); id != "" {
 		rule.ID, _ = strconv.ParseInt(id, 10, 64)
 	}
+	rule.Playlists = rules.CanonicalList(rule.Playlists)
 	if len(rule.Playlists) == 0 && len(rule.Players) == 0 {
 		writeJSON(w, http.StatusBadRequest, errBody("Die Regel braucht eine Playlist oder einen Mitspieler"))
 		return
@@ -1233,6 +1270,7 @@ func (a *App) apiSetupRules(w http.ResponseWriter, r *http.Request) {
 	for i := range in.Rules {
 		rule := in.Rules[i]
 		rule.ID, rule.Pos = 0, i+1
+		rule.Playlists = rules.CanonicalList(rule.Playlists)
 		if err := a.store.PutRule(&rule); err != nil {
 			fail(w, err)
 			return

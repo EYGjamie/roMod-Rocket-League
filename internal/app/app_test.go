@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
 	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing/ballchasingtest"
 	"github.com/EYGjamie/auto-replay-upload/internal/config"
+	"github.com/EYGjamie/auto-replay-upload/internal/game"
 	"github.com/EYGjamie/auto-replay-upload/internal/rules"
 	"github.com/EYGjamie/auto-replay-upload/internal/store"
 )
@@ -44,15 +46,16 @@ func (d *fakeDesk) ShowQuickSort(q QuickSort, pick func(int)) {
 	d.quick = append(d.quick, q)
 	d.pick = pick
 }
-func (d *fakeDesk) HideQuickSort()             {}
-func (d *fakeDesk) Toast(t Toast)              { d.mu.Lock(); d.toasts = append(d.toasts, t); d.mu.Unlock() }
-func (d *fakeDesk) SetTray(bool, bool)         {}
-func (d *fakeDesk) Reveal(string) error        { return nil }
-func (d *fakeDesk) OpenFolder(string) error    { return nil }
-func (d *fakeDesk) Edit(string) error          { return nil }
-func (d *fakeDesk) PickFiles() []string        { return nil }
-func (d *fakeDesk) Autostart() bool            { return d.autostart }
-func (d *fakeDesk) SetAutostart(on bool) error { d.autostart = on; return nil }
+func (d *fakeDesk) HideQuickSort()              {}
+func (d *fakeDesk) Toast(t Toast)               { d.mu.Lock(); d.toasts = append(d.toasts, t); d.mu.Unlock() }
+func (d *fakeDesk) SetTray(bool, bool)          {}
+func (d *fakeDesk) Reveal(string) error         { return nil }
+func (d *fakeDesk) OpenFolder(string) error     { return nil }
+func (d *fakeDesk) Edit(string) error           { return nil }
+func (d *fakeDesk) PickFiles() []string         { return nil }
+func (d *fakeDesk) Autostart() bool             { return d.autostart }
+func (d *fakeDesk) SetAutostart(on bool) error  { d.autostart = on; return nil }
+func (d *fakeDesk) RunElevated(...string) error { return errors.ErrUnsupported }
 func (d *fakeDesk) Platform() Platform {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -77,6 +80,7 @@ type testApp struct {
 	fake *ballchasingtest.Server
 	desk *fakeDesk
 	dir  string // replay folder
+	game string // the game's install folder, empty
 	srv  string // base URL of the interface
 }
 
@@ -98,15 +102,16 @@ func newTestApp(t *testing.T, mutate func(*config.Config)) *testApp {
 		t.Fatal(err)
 	}
 	desk := &fakeDesk{quickSort: true}
+	game := t.TempDir() // never the real installation
 	a, err := New(Options{ConfigPath: cfgPath, LogPath: filepath.Join(data, "log.txt"), Desktop: desk,
-		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true})
+		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true, GameDirs: func() []string { return []string{game} }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); time.Sleep(50 * time.Millisecond); a.Close() })
 	go a.Run(ctx)
-	ta := &testApp{App: a, t: t, fake: fake, desk: desk, dir: demos, srv: "http://" + a.ln.Addr().String()}
+	ta := &testApp{App: a, t: t, fake: fake, desk: desk, dir: demos, game: game, srv: "http://" + a.ln.Addr().String()}
 	ta.waitFor("account ok", func() bool { return a.accountInfo().Status == "ok" })
 	ta.waitFor("first sync", func() bool { return !a.Syncing() }) // else a test's own sync is skipped
 	a.store.SetIdentities([]store.Identity{{PID: "steam:" + fake.Me.SteamID, Name: "Jamie", Confirmed: true}})
@@ -503,6 +508,73 @@ func TestDeleteOnlyEmptyFolders(t *testing.T) {
 	}
 	if code := ta.call("DELETE", "/api/groups/"+empty, "", &e); code != 200 {
 		t.Errorf("deleting an empty folder: %d %v", code, e)
+	}
+}
+
+func TestEnableStatsAPI(t *testing.T) {
+	ta := newTestApp(t, nil)
+	var v statsAPIView
+	if code := ta.call("POST", "/api/stats-api/enable", "", &v); code != http.StatusBadRequest {
+		t.Errorf("without an installation: %d", code)
+	}
+
+	ini := filepath.Join(ta.game, "TAGame", "Config", "DefaultStatsAPI.ini")
+	os.MkdirAll(filepath.Dir(ini), 0o755)
+	os.WriteFile(ini, []byte("[TAGame.MatchStatsExporter_TA]\r\nPort=50000\r\nPacketSendRate=0"), 0o644)
+	ta.call("GET", "/api/stats-api", "", &v)
+	if len(v.Files) != 1 || v.Files[0].On || v.Files[0].Path != ini {
+		t.Fatalf("before: %+v", v)
+	}
+	if code := ta.call("POST", "/api/stats-api/enable", "", &v); code != 200 {
+		t.Fatalf("enable: %d %+v", code, v)
+	}
+	if len(v.Files) != 1 || !v.Files[0].On || v.Files[0].Port != 50000 || v.Port != 50000 {
+		t.Errorf("after: %+v", v)
+	}
+	if got := ta.config().StatsAPI; got != "127.0.0.1:50000" {
+		t.Errorf("the tool connects to %s, not to the game's port", got)
+	}
+}
+
+func TestAutoEnableStatsAPI(t *testing.T) {
+	ta := newTestApp(t, nil)
+	ini := filepath.Join(ta.game, "TAGame", "Config", "DefaultStatsAPI.ini")
+	os.MkdirAll(filepath.Dir(ini), 0o755)
+	off := []byte("[TAGame.MatchStatsExporter_TA]\r\nPort=49123\r\nPacketSendRate=0\r\n")
+	os.WriteFile(ini, off, 0o644)
+	on := func() bool { s, _ := game.ReadStatsINI(ini); return s.On() }
+
+	ta.autoEnableStatsAPI()
+	if on() {
+		t.Fatal("switched on without the setting")
+	}
+	if _, err := ta.UpdateSettings([]byte(`{"stats_api_auto":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	ta.autoEnableStatsAPI() // as at start
+	if !on() {
+		t.Error("still off at start with the setting")
+	}
+}
+
+func TestIgnoreFailedUploads(t *testing.T) {
+	ta := newTestApp(t, nil)
+	ta.store.PutFile(store.File{Name: "a.replay", State: store.Rejected, Error: "kaputt"})
+	ta.store.PutFile(store.File{Name: "b.replay", State: store.Failed, Error: "weg"})
+	if ta.queueSummary().Failed != 2 {
+		t.Fatal("setup")
+	}
+	var r map[string]int
+	if code := ta.call("POST", "/api/queue/ignore", `{"all":true}`, &r); code != 200 || r["ignored"] != 2 {
+		t.Fatalf("ignore all: %d %v", code, r)
+	}
+	if n := ta.queueSummary().Failed; n != 0 {
+		t.Errorf("%d failed after ignoring", n)
+	}
+	var q struct{ Items []fileView }
+	ta.call("GET", "/api/queue", "", &q)
+	if len(q.Items) != 2 || q.Items[0].State != store.Ignored {
+		t.Errorf("queue: %+v", q.Items)
 	}
 }
 

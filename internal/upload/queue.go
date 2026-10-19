@@ -295,14 +295,14 @@ func (q *Queue) AddManual(path string) error {
 	return nil
 }
 
-// Retry queues a failed file again with fresh attempts.
+// Retry queues a failed or ignored file again with fresh attempts.
 func (q *Queue) Retry(name string) error {
 	f, ok, err := q.cfg.Store.File(name)
 	if err != nil || !ok {
 		return err
 	}
 	switch f.State {
-	case store.Failed, store.Rejected, store.Retry:
+	case store.Failed, store.Rejected, store.Retry, store.Ignored:
 	default:
 		return nil
 	}
@@ -312,6 +312,27 @@ func (q *Queue) Retry(name string) error {
 	}
 	q.changed()
 	q.Wake()
+	return nil
+}
+
+// Ignore stops uploading a failed file for good: it leaves the error list
+// and is not queued again, unless the user retries it.
+func (q *Queue) Ignore(name string) error {
+	f, ok, err := q.cfg.Store.File(name)
+	if err != nil || !ok {
+		return err
+	}
+	switch f.State {
+	case store.Failed, store.Rejected, store.Retry:
+	default:
+		return nil
+	}
+	f.State, f.NextTry = store.Ignored, time.Time{}
+	if err := q.cfg.Store.PutFile(f); err != nil {
+		return err
+	}
+	log.Printf("%s wird ignoriert", f.Name)
+	q.changed()
 	return nil
 }
 

@@ -57,3 +57,25 @@ func TestMacDemoDirs(t *testing.T) {
 		t.Errorf("empty home: found %q", got)
 	}
 }
+
+func TestInstallDirs(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home [x]")
+	steam := filepath.Join(home, ".local", "share", "Steam")
+	bottle := filepath.Join(home, ".local", "share", "bottles", "bottles", "Epic", "drive_c")
+	mkdirs(t, filepath.Join(steam, "steamapps"), filepath.Join(bottle, "Program Files", "Epic Games", "rocketleague"),
+		filepath.Join(bottle, "users", "jamie", "Documents", "My Games", "Rocket League", "TAGame"))
+	heroic := filepath.Join(home, "installed.json")
+	os.WriteFile(heroic, []byte(`{"Sugar": {"app_name": "Sugar", "install_path": "/spiele/rocketleague"}}`), 0o644)
+
+	got := installDirs(home, linuxPatterns, heroic)
+	for _, want := range []string{
+		filepath.Join(steam, "steamapps", "common", "rocketleague"),
+		"/spiele/rocketleague",
+		filepath.Join(home, "Games", "Heroic", "rocketleague"),
+		filepath.Join(bottle, "Program Files", "Epic Games", "rocketleague"),
+	} {
+		if !slices.Contains(got, want) {
+			t.Errorf("%s missing in\n%q", want, got)
+		}
+	}
+}

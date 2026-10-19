@@ -43,6 +43,9 @@ type Desktop interface {
 	PickFiles() []string
 	SetAutostart(on bool) error
 	Autostart() bool
+	// RunElevated runs the tool again with args and administrator rights;
+	// errors.ErrUnsupported where the system has no such prompt.
+	RunElevated(args ...string) error
 	Platform() Platform
 }
 
@@ -89,6 +92,8 @@ type Options struct {
 	HTTPClient *http.Client
 	Unpaced    bool // no client-side rate limiting (tests)
 	Now        func() time.Time
+	GameDirs   func() []string // the game's install folders, default game.GameDirs
+	ShowUI     bool            // open the interface at start, not only after sign-in without start_minimized
 }
 
 type App struct {
@@ -291,10 +296,11 @@ func (a *App) Run(ctx context.Context) {
 	go a.syncLoop(ctx)
 	go a.detailLoop(ctx)
 	go a.housekeeping(ctx)
+	go a.autoEnableStatsAPI()
 
 	if !a.config().SetupDone {
 		a.desk.ShowOverlay("einrichtung")
-	} else if !a.config().StartMinimized {
+	} else if a.opts.ShowUI || !a.config().StartMinimized {
 		a.desk.ShowOverlay("uebersicht")
 	}
 	a.updateTray()

@@ -31,3 +31,4 @@ uploaded.json
 uploaded.json.tmp
 *.log
 *.log.old
+instance.json

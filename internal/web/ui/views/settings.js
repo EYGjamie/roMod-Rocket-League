@@ -1,4 +1,4 @@
-import { api, h, ico, fill, fmt, run, flash, sw, seg, debounce, visibilityNames, system, tierNames, uploadQuota } from '../lib.js';
+import { api, h, ico, fill, fmt, run, flash, busy, sw, seg, debounce, visibilityNames, system, tierNames, uploadQuota } from '../lib.js';
 
 // keyName turns a KeyboardEvent.code into a readable name.
 export function keyName(code) {
@@ -96,7 +96,7 @@ export function tokenForm(onDone, big) {
     const token = input.value.trim();
     if (!token) return input.focus();
     btn.disabled = true;
-    const me = await run(() => api('/api/token', { method: 'POST', body: { token } }), me => 'Angemeldet als ' + me.name);
+    const me = await run(() => api('/api/token', { method: 'POST', body: { token } }), me => 'Angemeldet als ' + me.name, 'Token wird bei ballchasing geprüft');
     btn.disabled = false;
     if (me) { input.value = ''; onDone?.(me); }
   }
@@ -130,6 +130,82 @@ export async function identityEditor(onChange) {
       players.filter(p => !pids.includes(p.pid)).map(p => h('option', { value: p.pid }, `${p.name} (${p.games} Spiele, ${p.pid})`))) : null);
   }
   await render();
+  return box;
+}
+
+// manualStatsAPI explains how to switch the Stats API on by hand.
+function manualStatsAPI(sys) {
+  return [
+    h('div', null, 'Rocket League beenden, im Installationsordner ', h('span', { class: 'mono' }, sys.windows ? 'TAGame\\Config\\TAStatsAPI.ini' : 'TAGame/Config/TAStatsAPI.ini'),
+      ' öffnen (gibt es sie nicht, dann DefaultStatsAPI.ini) und eintragen:'),
+    h('pre', null, '[TAGame.MatchStatsExporter_TA]\nPacketSendRate=1\nPort=49123'),
+    h('div', { class: 'n4' }, {
+      windows: 'Die Datei liegt meist unter Program Files und braucht zum Speichern Administratorrechte.',
+      linux: 'Bei Steam liegt der Installationsordner unter steamapps/common/rocketleague in der Steam-Bibliothek, meist ~/.local/share/Steam.',
+      darwin: 'Der Installationsordner liegt in der Flasche von CrossOver oder Whisky unter drive_c.',
+    }[sys.os] || ''),
+  ];
+}
+
+// statsAPIBox shows whether Rocket League's Stats API is on and switches it
+// on in every installation found, asking for administrator rights where
+// needed.
+export function statsAPIBox(sys) {
+  const box = h('div', { class: 'stack' });
+  const files = v => v.files.map(f => h('div', { class: 'ctl sm', style: { gap: '6px', flexWrap: 'nowrap' } },
+    h('span', { class: 'led' + (f.on ? '' : ' off') }), h('span', { class: 'mono ell n4', title: f.path }, f.path),
+    h('span', { class: 'nowrap ' + (f.on ? 'a3' : 'n4') }, f.on ? 'an, Port ' + f.port : 'aus')));
+  const manual = open => h('details', { class: 'note', open }, h('summary', null, 'Von Hand einrichten'), manualStatsAPI(sys));
+
+  async function enable(btn) {
+    if (btn) btn.disabled = true;
+    const done = busy('Stats API wird eingeschaltet', sys.windows ? 'Bestätige die Abfrage von Windows, falls sie erscheint …' : 'Datei wird gespeichert …', 0);
+    try {
+      const v = await api('/api/stats-api/enable', { method: 'POST' });
+      flash(v.running ? 'Stats API eingeschaltet, bitte Rocket League neu starten' : 'Stats API eingeschaltet');
+      render(v);
+    } catch (e) {
+      flash(e.message === 'abgebrochen' ? 'Abgebrochen, die Stats API ist noch aus' : 'Stats API: ' + e.message, 'err');
+      if (btn) btn.disabled = false;
+    } finally {
+      done();
+    }
+  }
+
+  function render(v) {
+    const off = v.files.filter(f => !f.on);
+    if (v.connected) {
+      return fill(box, h('div', { class: 'ctl n3', style: { gap: '6px', fontSize: '13px' } }, h('span', { class: 'led' }), 'Rocket League ist verbunden'));
+    }
+    if (!v.files.length) {
+      return fill(box, h('div', { class: 'note warn' }, h('div', { style: { marginBottom: '6px' } }, 'Rocket League ist nicht verbunden und der Installationsordner wurde nicht gefunden.'), manualStatsAPI(sys)));
+    }
+    if (off.length) {
+      const btn = h('button', { class: 'btn btn-primary', onclick: () => enable(btn) }, ico('plugs-connected'), 'Stats API einschalten');
+      return fill(box,
+        h('div', { class: 'note warn stack' },
+          h('div', null, 'Die Stats API von Rocket League ist aus. Ohne sie erkennt das Tool keine Matches und speichert keine Replays.'),
+          files(v),
+          h('div', { class: 'ctl', style: { gap: 'var(--space-3)' } }, btn,
+            sys.windows ? h('span', { class: 'sm n4' }, ico('shield-check'), ' Windows fragt nach Administratorrechten, wenn das Spiel unter Programme liegt.') : null),
+          v.running ? h('div', { class: 'sm n4' }, 'Rocket League läuft: Die Änderung wirkt nach dem nächsten Start des Spiels.') : null),
+        manual(false));
+    }
+    fill(box,
+      h('div', { class: 'note stack' },
+        h('div', null, 'Die Stats API ist eingeschaltet. ' + (v.running ? 'Starte Rocket League neu, damit es sie öffnet.' : 'Sobald Rocket League läuft, verbindet sich das Tool.')),
+        files(v),
+        v.files.some(f => f.port !== v.port) ? h('div', { class: 'sm n4' }, `Das Tool verbindet sich mit Port ${v.port}. Passt das nicht, unter Einstellungen → Spiel die Adresse anpassen.`) : null));
+  }
+
+  box.refresh = async () => { try { render(await api('/api/stats-api')); } catch (e) { fill(box, h('div', { class: 'note warn' }, e.message)); } };
+  // enableIfOff switches the API on where it is off, as the button would.
+  box.enableIfOff = async () => {
+    const v = await api('/api/stats-api');
+    if (!v.connected && v.files.some(f => !f.on)) await enable(box.querySelector('button.btn-primary'));
+    else render(v);
+  };
+  box.refresh();
   return box;
 }
 
@@ -167,6 +243,7 @@ export async function mount(root, ctx) {
     h('div', { class: 'ctl wide' }, sw(on, set, label), hint ? h('span', { class: 'hint' }, hint) : null));
   const option = (label, key, hint) => toggle(label, s[key], v => save({ [key]: v }), hint);
   const meta = sys.linux ? 'Super' : 'Win';
+  const statsBox = statsAPIBox(sys);
 
   function renderToc() {
     fill(toc, h('h1', null, 'Einstellungen'), sections.map((el, i) => h('button', { class: i === active ? 'on' : '', onclick: () => {
@@ -213,6 +290,9 @@ export async function mount(root, ctx) {
         sys.save_key ? row('Speichern-Taste', 'Gesendet nur, wenn Rocket League im Vordergrund ist', keyCapture(s.mark_key, code => save({ mark_key: code })), ...testKeyButton()) : null,
         sys.save_key ? row('Haltedauer', null, h('input', { class: 'input num', type: 'number', min: 100, max: 5000, step: 100, value: s.mark_hold_ms, 'aria-label': 'Haltedauer in Millisekunden',
           onchange: e => save({ mark_hold_ms: Number(e.target.value) }) }), h('span', { class: 'n4' }, 'ms')) : null,
+        h('div', { class: 'set top' }, h('div', null, 'Stats API', h('div', { class: 'hint' }, 'Darüber erkennt das Tool Matches')), statsBox),
+        toggle('Stats API beim Start einschalten', s.stats_api_auto, v => save({ stats_api_auto: v }).then(() => v && s.stats_api_auto && statsBox.enableIfOff()),
+          'Schaltet sie wieder ein, wenn ein Spielupdate sie ausgeschaltet hat' + (sys.windows ? '. Liegt das Spiel unter Programme, fragt Windows nach Administratorrechten.' : '.')),
         row('Stats-API-Adresse', 'Muss zum Port in der TAStatsAPI.ini passen',
           h('input', { class: 'input', type: 'text', value: s.stats_api_addr, style: { width: '170px', minHeight: '30px', flex: 'none' }, 'aria-label': 'Stats-API-Adresse',
             onchange: e => save({ stats_api_addr: e.target.value.trim() }) }),
@@ -239,7 +319,8 @@ export async function mount(root, ctx) {
       section('Start',
         sys.autostart ? toggle(sys.windows ? 'Mit Windows starten' : 'Bei der Anmeldung starten', s.autostart,
           v => run(() => api('/api/autostart', { method: 'POST', body: { on: v } })), sys.mac ? 'Erscheint unter Allgemein → Anmeldeobjekte' : null) : null,
-        option('Minimiert starten', 'start_minimized', sys.tray ? `Nur das Symbol ${sys.mac ? 'in der Menüleiste' : 'im Infobereich'}` + (sys.overlay ? ', Overlay bleibt zu' : '') : 'Die Oberfläche öffnet sich nicht im Browser')),
+        option('Bei der Anmeldung minimiert starten', 'start_minimized', (sys.tray ? `Nur das Symbol ${sys.mac ? 'in der Menüleiste' : 'im Infobereich'}` + (sys.overlay ? ', Overlay bleibt zu' : '') : 'Die Oberfläche öffnet sich nicht im Browser')
+          + '. Startest du das Programm selbst, öffnet sich die Oberfläche immer.')),
       section('Erweitert',
         row('Log', h('span', { class: 'mono' }, s.log_path), h('button', { class: 'btn btn-secondary', onclick: () => run(() => api('/api/open-log', { method: 'POST' })) }, ico('file-text'), 'Log anzeigen')),
         row('Einrichtung', 'Den Assistenten noch einmal durchlaufen', h('a', { class: 'btn btn-secondary', href: '#/einrichtung' }, ico('magic-wand'), 'Assistent öffnen'))),
@@ -252,5 +333,8 @@ export async function mount(root, ctx) {
 
   await render();
   ctx.on('settings', debounce(async () => { s = await api('/api/settings'); }, 300));
+  let connected = ctx.state.stats_api;
+  ctx.on('ui:state', () => { if (ctx.state.stats_api !== connected) { connected = ctx.state.stats_api; statsBox.refresh(); } });
+  ctx.on('statsapi', () => statsBox.refresh());
   return {};
 }

@@ -177,6 +177,47 @@ func TestRetriesTwiceThenGivesUp(t *testing.T) {
 	}
 }
 
+func TestIgnoredFilesStayAside(t *testing.T) {
+	e := newEnv(t)
+	e.write("bad.replay", "x") // the fake rejects names starting with "bad"
+	e.q.AddManual(filepath.Join(e.dir, "bad.replay"))
+	if err := e.q.Ignore("fremd.replay"); err != nil {
+		t.Fatal(err)
+	}
+	e.drain()
+	if err := e.q.Ignore("bad.replay"); err != nil {
+		t.Fatal(err)
+	}
+	if f := e.file("bad.replay"); f.State != store.Ignored || f.Error == "" {
+		t.Fatalf("after Ignore: %+v", f)
+	}
+	if _, ok, _ := e.st.File("fremd.replay"); ok {
+		t.Error("Ignore added an unknown file")
+	}
+
+	// neither scanning nor retrying all brings it back
+	e.q.scan()
+	e.q.scan()
+	if n, _ := e.q.RetryAll(); n != 0 {
+		t.Errorf("RetryAll() picked up %d files", n)
+	}
+	e.now = e.now.Add(time.Hour)
+	if e.q.step(context.Background()) {
+		t.Error("ignored file was tried again")
+	}
+	if f := e.file("bad.replay"); f.State != store.Ignored {
+		t.Errorf("after scan: %+v", f)
+	}
+
+	// a retry by name does
+	if err := e.q.Retry("bad.replay"); err != nil {
+		t.Fatal(err)
+	}
+	if f := e.file("bad.replay"); f.State != store.Queued || f.Error != "" {
+		t.Errorf("after Retry: %+v", f)
+	}
+}
+
 func TestOutageAndRejectionDoNotCountAsAttempts(t *testing.T) {
 	e := newEnv(t)
 	e.write("busy.replay", "x")

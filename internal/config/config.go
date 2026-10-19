@@ -24,11 +24,12 @@ type Config struct {
 	UploadExisting bool     `json:"upload_existing"`     // upload old, never uploaded replays at start
 	DeleteUploaded bool     `json:"delete_after_upload"` // move replays to the recycle bin after upload
 
-	StatsAPI   string `json:"stats_api_addr"`
-	AutoMark   bool   `json:"auto_mark"`
-	OnlineOnly bool   `json:"online_only"`
-	MarkKey    string `json:"mark_key"` // KeyboardEvent.code of the game's save replay key
-	MarkHoldMs int    `json:"mark_hold_ms"`
+	StatsAPI     string `json:"stats_api_addr"`
+	StatsAPIAuto bool   `json:"stats_api_auto"` // switch the Stats API on in the game's ini at start
+	AutoMark     bool   `json:"auto_mark"`
+	OnlineOnly   bool   `json:"online_only"`
+	MarkKey      string `json:"mark_key"` // KeyboardEvent.code of the game's save replay key
+	MarkHoldMs   int    `json:"mark_hold_ms"`
 
 	GUIHotkey   string `json:"gui_hotkey"`
 	PauseHotkey string `json:"pause_hotkey"`

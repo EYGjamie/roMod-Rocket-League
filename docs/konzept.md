@@ -115,7 +115,8 @@ ballchasing.com (HTTPS) ◀────────▶ ┘    • Match-Tracker 
 - **Zählen nicht als Versuch** (Annahme): Netzwerkausfall, ballchasing nicht erreichbar, Rate-Limit (`429`). Die Warteschlange steht dann auf „offline“ und läuft von selbst weiter, sobald ballchasing antwortet. Sonst wären nach einer kurzen Internetstörung alle Uploads endgültig fehlgeschlagen.
 - Ist der Token ungültig, hält die ganze Warteschlange an, und oben erscheint ein Hinweis mit dem Weg in die Einstellungen.
 - **„Jetzt erneut“** pro Eintrag und **„Alle fehlgeschlagenen erneut senden“** setzen den Versuchszähler zurück.
-- **Fehler-Badge** in der Navigation und als roter Punkt am Tray-Symbol: Anzahl der Einträge „fehlgeschlagen“ und „abgelehnt“.
+- **„Ignorieren“** pro Eintrag (auch aus der Benachrichtigung „Replay abgelehnt“) und **„Fehlgeschlagene ignorieren“** legen Einträge dauerhaft beiseite: Zustand „ignoriert“, kein Upload mehr, auch nicht durch „Alle erneut“ oder einen neuen Scan. Sie stehen im Reiter „Ignoriert“ der Übersicht, „Doch hochladen“ holt sie zurück.
+- **Fehler-Badge** in der Navigation und als roter Punkt am Tray-Symbol: Anzahl der Einträge „fehlgeschlagen“ und „abgelehnt“ (ignorierte zählen nicht).
 - Die Warteschlange steht in der Datenbank und übersteht Neustarts.
 
 **Pausieren** **[neu]**
@@ -286,7 +287,8 @@ Eigene kleine Hinweisfenster unten rechts mit Aktionen, jede Art einzeln abschal
   - Im Browser öffnen
   - Einstellungen
   - Beenden
-- **Symbol**: normal, grau (pausiert), mit rotem Punkt (Fehler).
+- **Symbol**: normal, grau (pausiert), mit rotem Punkt (Fehler). Dasselbe Symbol (Replay-Kreispfeil um einen Upload-Pfeil auf violetter Kachel) trägt die exe, die Oberfläche oben links und der Browser-Tab; `internal/assets/gen.go` zeichnet alle Varianten.
+- **Start**: Ein Start von Hand öffnet die Oberfläche sofort, ohne Konsolenfenster. Der Autostart übergibt `-autostart`; dann bleibt es beim Symbol, solange „Bei der Anmeldung minimiert starten“ an ist. Läuft das Tool schon, öffnet ein weiterer Start dessen Oberfläche (Adresse in `instance.json`) statt einer Meldung.
 - **Tooltip**: letzte Meldung **[da]**.
 
 ## 10. Löschen nach Upload und „Ins Spiel laden“
@@ -339,7 +341,7 @@ Jede Änderung wird sofort gespeichert und wirkt ohne Neustart (Hotkeys werden n
 | Hotkeys | Overlay / Pause / Schnell-Einordnen | Strg+Alt+B / Strg+Alt+P / Strg+Alt+1–4 |
 | Benachrichtigungen | Hochgeladen / Fehlgeschlagen / Session beendet / Schnell-Einordnen, je an/aus; Countdown-Dauer | an / an / an / an; 10 s |
 | Start | Mit Windows starten | an |
-| Start | Minimiert starten (Overlay beim Start nicht öffnen) | an |
+| Start | Bei der Anmeldung minimiert starten (Overlay nicht öffnen; ein Start von Hand öffnet es immer) | an |
 
 Der Token wird mit Windows-DPAPI für den angemeldeten Benutzer verschlüsselt in der `config.json` abgelegt (`ballchasing_token_protected`). Ein Klartext-Token aus einer alten Konfiguration wird gelesen und beim nächsten Speichern verschlüsselt. Die Umgebungsvariable `BALLCHASING_TOKEN` hat weiter Vorrang.
 
@@ -350,7 +352,7 @@ Er erscheint beim ersten Start im Overlay und ersetzt das heutige „config.json
 1. **ballchasing verbinden**: Link zu ballchasing.com/upload, Token einfügen, sofort prüfen, Kontoname zeigen. Danach das Konto abgleichen und „Bist du das?“ mit dem erkannten Spieler (bzw. beiden Accounts) bestätigen.
 2. **Replay-Ordner**: erkannte Ordner mit Anzahl der Replays, ändern oder ergänzen.
 3. **Spiel und Speichern-Taste** (ergänzt):
-   - Prüft, ob die Stats API erreichbar ist. Falls nicht, steht die Anleitung für `TAStatsAPI.ini` daneben. Die Datei liegt meist unter `Program Files` und lässt sich ohne Adminrechte nicht ändern.
+   - Prüft, ob die Stats API erreichbar ist. Falls nicht, sucht das Tool die Installationen des Spiels (Steam-Bibliotheken, Epic Games Launcher, Heroic/Legendary, Wine-Präfixe) und liest dort `TAGame/Config/TAStatsAPI.ini`, sonst `DefaultStatsAPI.ini`. Ist `PacketSendRate` 0, schaltet **„Stats API einschalten“** sie ein: `PacketSendRate=1`, der Port bleibt, wie er in der Datei steht (fehlt er, der des Tools). Weicht der Port vom Tool ab, übernimmt das Tool ihn. Unter `Program Files` startet das Tool sich selbst mit Administratorrechten (`-enable-stats-api`, eine UAC-Abfrage für alle Dateien). Die Anleitung von Hand steht aufklappbar daneben.
    - Danach Speichern-Taste wählen und **Test-Knopf**: In 5 s zu Rocket League wechseln (im Match), das Tool drückt die Taste, und im Spiel muss „Replay wird gespeichert“ erscheinen.
 4. **Upload und Ordner**: Standard-Sichtbarkeit, Standard-Regeln (Liste aus [Anhang B](#anhang-b-standard-regeln) mit Häkchen und änderbaren Ordnernamen), Löschen nach Upload.
 5. **Alte Replays nachladen**: keine / letzte 30 Tage / alle, mit Anzahl. Bereits vorhandene erkennt ballchasing selbst (`409`).
@@ -525,26 +527,23 @@ Bei älteren Replays fehlen laut Doku einzelne Felder, etwa `time_wall` und `per
 
 Nach der Entscheidung „Ranked und Casual getrennt, Extra-Modi einzeln“. Ordnernamen sind im Assistenten änderbar, die Playlist-Kennungen stammen aus der ballchasing-Doku.
 
-| Playlist (`playlist_id`) | Ordner |
-|---|---|
-| `ranked-duels` | 1s Ranked |
-| `ranked-doubles` | 2s Ranked |
-| `ranked-standard`, `ranked-solo-standard` | 3s Ranked |
-| `unranked-duels` | 1s Casual |
-| `unranked-doubles` | 2s Casual |
-| `unranked-standard` | 3s Casual |
-| `unranked-chaos` | 4s Casual |
-| `ranked-hoops` | Hoops Ranked |
-| `hoops` | Hoops Casual |
-| `ranked-rumble` | Rumble Ranked |
-| `rumble` | Rumble Casual |
-| `ranked-dropshot` | Dropshot Ranked |
-| `dropshot` | Dropshot Casual |
-| `ranked-snowday` | Snow Day Ranked |
-| `snowday` | Snow Day Casual |
-| `heatseeker` | Heatseeker |
-| `dropshot-rumble` | Dropshot Rumble |
-| `rocketlabs` | Rocket Labs |
-| `tournament` | Turniere |
-| `private` | Private |
-| `offline`, `season`, unbekannte | keine Regel → Eingang |
+Angeboten werden nur Playlists, die es im Spiel noch gibt. Solo Standard ist abgeschafft, die Extra-Modi gibt es nur noch als Ranked. Ältere Replays aus diesen Playlists zählen als ihr Nachfolger (`rules.Canonical`): beim Einordnen, in Vorschlägen, Statistik und Anzeige. Rocket Labs gibt es nicht mehr und wird nicht angeboten.
+
+| Playlist (`playlist_id`) | zählt auch für | Ordner |
+|---|---|---|
+| `ranked-duels` | | 1s Ranked |
+| `ranked-doubles` | | 2s Ranked |
+| `ranked-standard` | `ranked-solo-standard` | 3s Ranked |
+| `unranked-duels` | | 1s Casual |
+| `unranked-doubles` | | 2s Casual |
+| `unranked-standard` | | 3s Casual |
+| `unranked-chaos` | | 4s Casual |
+| `ranked-hoops` | `hoops` | Hoops |
+| `ranked-rumble` | `rumble` | Rumble |
+| `ranked-dropshot` | `dropshot` | Dropshot |
+| `ranked-snowday` | `snowday` | Snow Day |
+| `heatseeker` | | Heatseeker |
+| `dropshot-rumble` | | Dropshot Rumble |
+| `tournament` | | Turniere |
+| `private` | | Private |
+| `offline`, `season`, unbekannte | | keine Regel → Eingang |
