@@ -79,7 +79,7 @@ Windows- und Linux-Programme lassen sich auf jedem System bauen, etwa mit `GOOS=
 
 ### 2. Stats API aktivieren
 
-Das erledigt die Einrichtung (Schritt „Rocket League“) mit einem Klick auf **„Stats API einschalten“**: Das Tool sucht das Spiel in allen Steam-Bibliotheken, beim Epic Games Launcher, bei Heroic und Legendary sowie in den Wine-Präfixen und schaltet die API in jeder gefundenen Installation ein. Liegt das Spiel unter `Program Files`, fragt Windows einmal nach Administratorrechten. Läuft Rocket League gerade, wirkt die Änderung nach dem nächsten Start des Spiels. Dieselbe Anzeige steht unter Einstellungen → Spiel, etwa wenn ein Spielupdate die Datei zurückgesetzt hat. Mit **„Stats API beim Start einschalten“** prüft das Tool das bei jedem Start und schaltet die API selbst wieder ein.
+Das erledigt die Einrichtung (Schritt „Rocket League“) mit einem Klick auf **„Stats API einschalten“**: Das Tool sucht das Spiel in allen Steam-Bibliotheken, beim Epic Games Launcher, bei Heroic und Legendary sowie in den Wine-Präfixen und schaltet die API in jeder gefundenen Installation ein. Liegt das Spiel unter `Program Files`, fragt Windows einmal nach Administratorrechten. Läuft Rocket League gerade, wirkt die Änderung nach dem nächsten Start des Spiels. Dieselbe Anzeige steht unter Einstellungen → Spiel, etwa wenn ein Spielupdate die Datei zurückgesetzt hat. Das meldet das Tool auch selbst, sobald Rocket League eine Minute ohne Stats API läuft (siehe [Fehlerbehebung](#fehlerbehebung)). Mit **„Stats API beim Start einschalten“** prüft das Tool das bei jedem Start und schaltet die API selbst wieder ein.
 
 Von Hand: Rocket League beenden. Im Installationsordner des Spiels die Datei `TAGame/Config/TAStatsAPI.ini` öffnen (gibt es sie nicht, dann `DefaultStatsAPI.ini`) und im Abschnitt `[TAGame.MatchStatsExporter_TA]` setzen:
 
@@ -235,6 +235,7 @@ Meldungen stehen im Log, die letzte auch im Tooltip des Symbols. Fehler, wegen d
 | Problem | Ursache und Lösung |
 |---|---|
 | „Rocket League nicht verbunden“, obwohl das Spiel läuft | Stats API aus oder anderer Port. Unter Einstellungen → Spiel „Stats API einschalten“ (siehe [Installation](#2-stats-api-aktivieren)), danach das Spiel neu starten. |
+| Benachrichtigung „Stats API ist aus“ | Rocket League läuft seit einer Minute, ohne dass sich das Tool verbindet, und in der ini einer Installation ist die Stats API aus, meist weil ein Spielupdate die Datei zurückgesetzt hat. „Einschalten“ schaltet sie wieder ein (unter `Program Files` nach der Abfrage von Windows), danach das Spiel neu starten; „Einstellungen“ zeigt die gefundenen Dateien. Der Hinweis kommt höchstens einmal pro Spielstart und nie während eines Matches. Unter macOS hat die Mitteilung keine Knöpfe, dann Einstellungen → Spiel. |
 | „Token ungültig“ | Neuen Token auf [ballchasing.com/upload](https://ballchasing.com/upload) erzeugen und in den Einstellungen eintragen. Uploads warten so lange. |
 | „ballchasing nicht erreichbar“, Uploads warten | Internet oder ballchasing gestört. Die Uploads laufen von selbst weiter, ein Ausfall zählt nicht als Fehlversuch. |
 | Upload „fehlgeschlagen“ | Drei Versuche (sofort, nach 1 und nach 5 Minuten) sind gescheitert. In der Übersicht „Erneut versuchen“, oder „Ignorieren“, dann lädt das Tool die Datei nie wieder hoch (rückgängig unter „Ignoriert“). |

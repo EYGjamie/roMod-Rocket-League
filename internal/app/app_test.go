@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,7 +83,13 @@ type testApp struct {
 	dir  string // replay folder
 	game string // the game's install folder, empty
 	srv  string // base URL of the interface
+
+	running atomic.Bool  // Rocket League runs, never the real process
+	skew    atomic.Int64 // added to the app's clock
 }
+
+// advance moves the app's clock forward.
+func (ta *testApp) advance(d time.Duration) { ta.skew.Add(int64(d)) }
 
 func newTestApp(t *testing.T, mutate func(*config.Config)) *testApp {
 	t.Helper()
@@ -103,15 +110,17 @@ func newTestApp(t *testing.T, mutate func(*config.Config)) *testApp {
 	}
 	desk := &fakeDesk{quickSort: true}
 	game := t.TempDir() // never the real installation
+	ta := &testApp{t: t, fake: fake, desk: desk, dir: demos, game: game}
 	a, err := New(Options{ConfigPath: cfgPath, LogPath: filepath.Join(data, "log.txt"), Desktop: desk,
-		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true, GameDirs: func() []string { return []string{game} }})
+		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true, GameDirs: func() []string { return []string{game} },
+		GameRunning: ta.running.Load, Now: func() time.Time { return time.Now().Add(time.Duration(ta.skew.Load())) }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); time.Sleep(50 * time.Millisecond); a.Close() })
 	go a.Run(ctx)
-	ta := &testApp{App: a, t: t, fake: fake, desk: desk, dir: demos, game: game, srv: "http://" + a.ln.Addr().String()}
+	ta.App, ta.srv = a, "http://"+a.ln.Addr().String()
 	ta.waitFor("account ok", func() bool { return a.accountInfo().Status == "ok" })
 	ta.waitFor("first sync", func() bool { return !a.Syncing() }) // else a test's own sync is skipped
 	a.store.SetIdentities([]store.Identity{{PID: "steam:" + fake.Me.SteamID, Name: "Jamie", Confirmed: true}})
@@ -554,6 +563,79 @@ func TestAutoEnableStatsAPI(t *testing.T) {
 	ta.autoEnableStatsAPI() // as at start
 	if !on() {
 		t.Error("still off at start with the setting")
+	}
+}
+
+func TestStatsAPIHint(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) { c.AutoMark = false }) // no save key in the match below
+	ini := filepath.Join(ta.game, "TAGame", "Config", "TAStatsAPI.ini")
+	os.MkdirAll(filepath.Dir(ini), 0o755)
+	off := func() {
+		os.WriteFile(ini, []byte("[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=0\r\nPort=1\r\n"), 0o644)
+	}
+	hints := func() []Toast {
+		_, toasts, _ := ta.desk.snapshot()
+		return slices.DeleteFunc(toasts, func(t Toast) bool { return t.Kind != "statsapi" })
+	}
+	// starts the game and lets it run for d without the Stats API
+	run := func(d time.Duration) {
+		ta.running.Store(false)
+		ta.checkStatsAPI()
+		ta.running.Store(true)
+		ta.checkStatsAPI()
+		ta.advance(d)
+		ta.checkStatsAPI()
+	}
+	off()
+
+	run(50 * time.Second)
+	if n := len(hints()); n != 0 {
+		t.Fatalf("%d hints after 50 seconds", n)
+	}
+	ta.advance(20 * time.Second)
+	ta.tracker.Handle(game.Event{Name: "RoundStarted", MatchGuid: "g"})
+	ta.checkStatsAPI()
+	if n := len(hints()); n != 0 {
+		t.Fatalf("%d hints during a match", n)
+	}
+	ta.tracker.Handle(game.Event{Name: "MatchDestroyed"})
+	ta.checkStatsAPI()
+	ta.advance(time.Hour)
+	ta.checkStatsAPI()
+	h := hints()
+	if len(h) != 1 || len(h[0].Actions) != 2 || h[0].Actions[0].Label != "Einschalten" || h[0].Actions[1].Label != "Einstellungen" {
+		t.Fatalf("one hint per start of the game with two actions: %+v", h)
+	}
+
+	h[0].Actions[1].Run()
+	ta.desk.mu.Lock()
+	if !slices.Equal(ta.desk.overlay, []string{"einstellungen"}) {
+		t.Errorf("overlay: %v", ta.desk.overlay)
+	}
+	ta.desk.mu.Unlock()
+	h[0].Actions[0].Run()
+	if s, _ := game.ReadStatsINI(ini); !s.On() || s.Port != 1 {
+		t.Errorf("not switched on: %+v", s)
+	}
+	if h = hints(); len(h) != 2 || h[1].Title != "Rocket League neu starten" {
+		t.Errorf("after switching on: %+v", h)
+	}
+
+	run(time.Hour)
+	if n := len(hints()); n != 2 {
+		t.Errorf("hint although the Stats API is on and only the game needs a restart: %d", n)
+	}
+
+	off()
+	ta.statsAPI.Store(true)
+	run(time.Hour)
+	ta.statsAPI.Store(false)
+	if n := len(hints()); n != 2 {
+		t.Errorf("hint although the tool is connected: %d", n)
+	}
+	run(time.Minute)
+	if n := len(hints()); n != 3 {
+		t.Errorf("no hint after the next start of the game: %d", n)
 	}
 }
 

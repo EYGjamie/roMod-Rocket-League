@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/EYGjamie/auto-replay-upload/internal/game"
 )
@@ -39,6 +40,14 @@ func (a *App) gameDirs() []string {
 	return game.GameDirs()
 }
 
+// gameRunning reports whether Rocket League runs.
+func (a *App) gameRunning() bool {
+	if a.opts.GameRunning != nil {
+		return a.opts.GameRunning()
+	}
+	return game.RocketLeagueRunning()
+}
+
 // statsPort returns the port of the configured Stats API address.
 func (a *App) statsPort() int {
 	_, p, err := net.SplitHostPort(a.config().StatsAPI)
@@ -49,7 +58,7 @@ func (a *App) statsPort() int {
 }
 
 func (a *App) statsAPIView() statsAPIView {
-	v := statsAPIView{Connected: a.statsAPI.Load(), Running: game.RocketLeagueRunning(), Port: a.statsPort(), Files: []statsINIView{}}
+	v := statsAPIView{Connected: a.statsAPI.Load(), Running: a.gameRunning(), Port: a.statsPort(), Files: []statsINIView{}}
 	for _, s := range game.StatsINIs(a.gameDirs()) {
 		v.Files = append(v.Files, statsINIView{Path: s.Path, Exists: s.Exists, On: s.On(), Port: s.Port})
 	}
@@ -112,6 +121,50 @@ func (a *App) EnableStatsAPI() error {
 	return nil
 }
 
+// statsAPIHintAfter is how long Rocket League runs without the Stats API
+// before the tool looks for the reason.
+const statsAPIHintAfter = time.Minute
+
+// checkStatsAPI notices a game update that switched the Stats API off: if
+// Rocket League runs for a minute without the tool connecting and the ini
+// of an installation has it off, it offers to switch it on, once per start
+// of the game. If every installation has it on, the game only needs a
+// restart, which the settings say.
+func (a *App) checkStatsAPI() {
+	running, now := a.gameRunning(), a.now()
+	a.mu.Lock()
+	h := &a.hint
+	switch {
+	case !running:
+		h.since, h.done = time.Time{}, false
+	case a.statsAPI.Load():
+		h.since = time.Time{}
+	case h.since.IsZero():
+		h.since = now
+	}
+	due := !h.done && !h.since.IsZero() && now.Sub(h.since) >= statsAPIHintAfter && !a.tracker.InMatch()
+	if due {
+		h.done = true
+	}
+	a.mu.Unlock()
+	if !due || !slices.ContainsFunc(game.StatsINIs(a.gameDirs()), func(s game.StatsINI) bool { return !s.On() }) {
+		return
+	}
+	log.Print("Rocket League läuft ohne Stats API, sie ist in der ini des Spiels aus (etwa nach einem Spielupdate)")
+	settings := ToastAction{Label: "Einstellungen", Run: func() { a.desk.ShowOverlay("einstellungen") }}
+	enable := ToastAction{Label: "Einschalten", Run: func() {
+		if err := a.EnableStatsAPI(); err != nil {
+			log.Printf("Stats API einschalten: %v", err)
+			a.toast(Toast{Kind: "statsapi", Title: "Stats API nicht eingeschaltet", Body: err.Error(), Actions: []ToastAction{settings}})
+			return
+		}
+		a.toast(Toast{Kind: "statsapi", Title: "Rocket League neu starten", Body: "Die Stats API ist eingeschaltet und wirkt nach dem nächsten Start des Spiels."})
+	}}
+	a.toast(Toast{Kind: "statsapi", Title: "Stats API ist aus",
+		Body:    "Rocket League läuft ohne Stats API, vermutlich nach einem Spielupdate. Ohne sie erkennt das Tool keine Matches und speichert keine Replays.",
+		Actions: []ToastAction{enable, settings}})
+}
+
 func (a *App) apiEnableStatsAPI(w http.ResponseWriter, r *http.Request) {
 	if err := a.EnableStatsAPI(); err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody(err.Error()))
@@ -132,7 +185,7 @@ func (a *App) autoEnableStatsAPI() {
 		log.Printf("Stats API automatisch einschalten: %v", err)
 		return
 	}
-	if game.RocketLeagueRunning() {
+	if a.gameRunning() {
 		log.Print("Rocket League läuft: Die Stats API wirkt nach dem nächsten Start des Spiels")
 	}
 	a.events.publish("statsapi")

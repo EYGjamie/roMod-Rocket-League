@@ -70,7 +70,7 @@ type QuickSort struct {
 
 // Toast is a notification with up to two actions.
 type Toast struct {
-	Kind    string // uploaded, failed, session
+	Kind    string // uploaded, failed, session, statsapi
 	Title   string
 	Body    string
 	Actions []ToastAction
@@ -84,16 +84,17 @@ type ToastAction struct {
 
 // Options configure New.
 type Options struct {
-	ConfigPath string
-	LogPath    string
-	Desktop    Desktop
-	Hotkeys    *hotkey.Manager // nil disables hotkeys (tests)
-	BaseURL    string          // ballchasing, default https://ballchasing.com
-	HTTPClient *http.Client
-	Unpaced    bool // no client-side rate limiting (tests)
-	Now        func() time.Time
-	GameDirs   func() []string // the game's install folders, default game.GameDirs
-	ShowUI     bool            // open the interface at start, not only after sign-in without start_minimized
+	ConfigPath  string
+	LogPath     string
+	Desktop     Desktop
+	Hotkeys     *hotkey.Manager // nil disables hotkeys (tests)
+	BaseURL     string          // ballchasing, default https://ballchasing.com
+	HTTPClient  *http.Client
+	Unpaced     bool // no client-side rate limiting (tests)
+	Now         func() time.Time
+	GameDirs    func() []string // the game's install folders, default game.GameDirs
+	GameRunning func() bool     // whether Rocket League runs, default game.RocketLeagueRunning
+	ShowUI      bool            // open the interface at start, not only after sign-in without start_minimized
 }
 
 type App struct {
@@ -116,6 +117,10 @@ type App struct {
 	toasts   []Toast // held back during a match
 	lastGame time.Time
 	notified time.Time // end of the last session announced
+	hint     struct {
+		since time.Time // Rocket League runs without the Stats API since
+		done  bool      // looked for the reason during this start of the game
+	}
 
 	statsAPI atomic.Bool
 	syncing  atomic.Bool
@@ -307,7 +312,8 @@ func (a *App) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-// housekeeping releases held notifications and announces ended sessions.
+// housekeeping releases held notifications, announces ended sessions and
+// notices a Stats API that is off.
 func (a *App) housekeeping(ctx context.Context) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
@@ -318,6 +324,7 @@ func (a *App) housekeeping(ctx context.Context) {
 		case <-t.C:
 			a.flushToasts()
 			a.checkSessionEnd(false)
+			a.checkStatsAPI()
 		}
 	}
 }
@@ -328,7 +335,7 @@ func (a *App) statsAPIConnected(up bool) {
 	if !up {
 		// Rocket League closed: the session is over
 		time.AfterFunc(5*time.Second, func() {
-			if !game.RocketLeagueRunning() {
+			if !a.gameRunning() {
 				a.checkSessionEnd(true)
 			}
 		})
