@@ -21,6 +21,8 @@ var (
 	procSetWindowPos          = user32.NewProc("SetWindowPos")
 	procShowWindow            = user32.NewProc("ShowWindow")
 	procSendMessage           = user32.NewProc("SendMessageW")
+	procPostMessage           = user32.NewProc("PostMessageW")
+	procReleaseCapture        = user32.NewProc("ReleaseCapture")
 	procSetForegroundWindow   = user32.NewProc("SetForegroundWindow")
 	procMonitorFromWindow     = user32.NewProc("MonitorFromWindow")
 	procGetMonitorInfo        = user32.NewProc("GetMonitorInfoW")
@@ -31,9 +33,14 @@ const (
 	wsPopup                     = 0x80000000
 	wsExToolWindow              = 0x00000080 // no taskbar button
 	swHide                      = 0
+	swpNoSize                   = 0x0001
+	swpNoMove                   = 0x0002
 	swpFrameChanged             = 0x0020
 	swpShowWindow               = 0x0040
 	wmSize                      = 0x0005
+	wmNCLButtonDown             = 0x00A1
+	htCaption                   = 2
+	monitorDefaultToNull        = 0
 	monitorDefaultToPrimary     = 1
 	dwmwaWindowCornerPreference = 33
 	dwmwcpRound                 = 2
@@ -65,6 +72,7 @@ type Overlay struct {
 	hwnd     uintptr
 	creating bool
 	route    string // view to open once the window exists
+	moved    bool   // dragged by the user; only used on the window's thread
 }
 
 func NewOverlay(url string) *Overlay {
@@ -105,7 +113,7 @@ func (o *Overlay) Show(route string) {
 				view.Eval("location.hash = " + strconv.Quote("#/"+route))
 			}
 			view.Eval("window.onOverlayShown && window.onOverlayShown()")
-			showOverlay(hwnd)
+			showOverlay(hwnd, o.moved)
 		})
 	}
 }
@@ -145,6 +153,15 @@ func (o *Overlay) run() {
 	corners := uint32(dwmwcpRound) // Windows 11 only, ignored elsewhere
 	procDwmSetWindowAttribute.Call(hwnd, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&corners)), 4)
 	view.Bind("closeOverlay", func() { procShowWindow.Call(hwnd, swHide) })
+	o.moved = false
+	view.Bind("dragOverlay", func() {
+		// Hand the pressed mouse button over to the move loop of Windows, as
+		// if the click had hit a title bar. Posted, so the loop runs after
+		// WebView2 has finished delivering this call.
+		o.moved = true
+		procReleaseCapture.Call()
+		procPostMessage.Call(hwnd, wmNCLButtonDown, htCaption, 0)
+	})
 	o.mu.Lock()
 	url := o.url
 	if o.route != "" {
@@ -152,7 +169,7 @@ func (o *Overlay) run() {
 	}
 	o.mu.Unlock()
 	view.Navigate(url)
-	showOverlay(hwnd)
+	showOverlay(hwnd, false)
 
 	o.mu.Lock()
 	o.view, o.hwnd, o.creating = view, hwnd, false
@@ -165,11 +182,18 @@ func (o *Overlay) run() {
 	o.mu.Unlock()
 }
 
-// showOverlay centers the window on the monitor of the current foreground
-// window (usually the game), puts it on top and focuses it.
-func showOverlay(hwnd uintptr) {
-	x, y, w, h := overlayBounds()
-	procSetWindowPos.Call(hwnd, hwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(h), swpFrameChanged|swpShowWindow)
+// showOverlay puts the window on top and focuses it. It centers the window
+// on the monitor of the current foreground window (usually the game), unless
+// keep is set and the window is still on a monitor.
+func showOverlay(hwnd uintptr, keep bool) {
+	var x, y, w, h int32
+	flags := uintptr(swpFrameChanged | swpShowWindow)
+	if mon, _, _ := procMonitorFromWindow.Call(hwnd, monitorDefaultToNull); keep && mon != 0 {
+		flags |= swpNoMove | swpNoSize
+	} else {
+		x, y, w, h = overlayBounds()
+	}
+	procSetWindowPos.Call(hwnd, hwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(h), flags)
 	procSendMessage.Call(hwnd, wmSize, 0, 0) // let WebView2 fill the new client area
 	procSetForegroundWindow.Call(hwnd)
 }
