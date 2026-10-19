@@ -1,65 +1,38 @@
-import { api, h, fill, fmt, run, menu, debounce, confirmDialog, promptDialog, pickFolder, loadGroups, tree, groupPath, replayRow } from '../lib.js';
-import { createReplayList } from './list.js';
-
-export const title = 'Ordner';
+import { api, h, ico, fill, fmt, run, flash, menu, debounce, confirmDialog, promptDialog, pickFolder, moveTo, loadGroups, tree, groupPath, visibilityNames, resultBadge, scoreLine, mates } from '../lib.js';
 
 const open = new Set();
 
-// moveTo moves replays and reports the result.
-async function moveTo(ids, group, name) {
-  const res = await run(() => api('/api/replays/move', { method: 'POST', body: { ids, group } }));
-  if (!res) return;
-  if (res.errors.length) run(async () => { throw new Error(`${res.done} verschoben, ${res.errors.length} fehlgeschlagen: ${res.errors[0]}`); });
-  else run(async () => {}, `${res.done} Replays nach „${name}“ verschoben`);
-}
-
-// sessionBlock shows one session of unsorted replays with its actions.
-export function sessionBlock(s, { selected, onSelect, changed, current }) {
-  const ids = s.items.map(it => it.replay.id);
-  const split = s.split.filter(sp => sp.group_id);
-  return h('div', { class: 'list' },
-    h('div', { class: 'list-head', style: { flexWrap: 'wrap' } },
-      h('strong', { style: { color: 'var(--text)' } }, 'Session ' + fmt.day(s.start) + ', ' + fmt.clock(s.start) + '–' + fmt.clock(s.end)),
-      h('span', null, `${s.items.length} Spiele · ${s.wins}–${s.losses}`),
-      h('span', { class: 'grow' }),
-      h('button', { class: 'small', onclick: async () => {
-        const f = await pickFolder(`${ids.length} Replays verschieben`, { inbox: false });
-        if (f) { await moveTo(ids, f.id, f.name); changed(); }
-      } }, 'Alle nach …'),
-      split.length ? h('button', { class: 'small', title: split.map(sp => `${sp.count}× ${sp.playlist} → ${sp.group}`).join('\n'), onclick: async () => {
-        const ok = await confirmDialog('Session aufteilen', h('div', { class: 'stack' },
-          h('div', null, 'Die Replays werden je Playlist in diese Ordner verschoben:'),
-          h('ul', null, split.map(sp => h('li', null, `${sp.count}× ${sp.playlist} → ${sp.group}`)))), 'Aufteilen');
-        if (!ok) return;
-        for (const sp of split) await moveTo(sp.ids, sp.group_id, sp.group);
-        changed();
-      } }, 'Aufteilen') : null),
-    s.items.map(it => replayRow(it.replay, { selected, onSelect, changed, current: current === it.replay.id })));
-}
-
 export async function mount(root, ctx) {
-  let selectedNode = (() => { try { return sessionStorage.getItem('ordner'); } catch { return null; } })() || 'unsorted';
-  const treeBox = h('div', { class: 'tree', role: 'tree', 'aria-label': 'Ordner' });
-  const right = h('div', { class: 'stack' });
-  const syncBtn = h('button', { class: 'small', onclick: () => run(() => api('/api/sync', { method: 'POST', body: { full: true } }), 'Abgleich mit ballchasing gestartet') }, 'Aktualisieren');
-  root.append(h('div', { class: 'layout-tree' },
-    h('div', { class: 'card', style: { padding: '10px' } },
-      h('div', { class: 'row', style: { padding: '2px 4px 8px' } }, h('h2', { class: 'grow' }, 'Ordner'),
-        h('button', { class: 'small', onclick: () => newFolder('') }, '+ Neu'), syncBtn),
-      treeBox),
-    right));
-
+  let selected = (() => { try { return sessionStorage.getItem('ordner'); } catch { return null; } })() || '';
+  let filter = '';
   let groups = [];
-  let unsorted = 0;
+  let synced = '';
+  let rules = [];
+  let items = [];
+  let total = 0;
+  const sel = new Set();
+  const nodes = h('div', { style: { display: 'contents' }, role: 'tree', 'aria-label': 'Ordner' });
+  const sync = h('div', { class: 'sync' });
+  const pane = h('div', { class: 'pane' });
+  root.append(h('div', { class: 'panes' },
+    h('div', { class: 'side' },
+      h('div', { class: 'head' }, h('h1', null, 'Ordner'),
+        h('button', { class: 'btn btn-ghost btn-icon', 'aria-label': 'Neuer Ordner', title: 'Neuer Ordner', onclick: () => newFolder('') }, ico('folder-simple-plus')),
+        h('button', { class: 'btn btn-ghost btn-icon', 'aria-label': 'Mit ballchasing abgleichen', title: 'Mit ballchasing abgleichen',
+          onclick: () => run(() => api('/api/sync', { method: 'POST', body: { full: true } }), 'Abgleich mit ballchasing gestartet') }, ico('arrows-clockwise'))),
+      h('label', { class: 'search flat' }, ico('magnifying-glass'),
+        h('input', { type: 'search', placeholder: 'Ordner filtern', 'aria-label': 'Ordner filtern', oninput: e => { filter = e.target.value.trim().toLowerCase(); renderTree(); } })),
+      h('div', { class: 'hsep' }), nodes, sync),
+    pane));
 
   async function newFolder(parent) {
-    const name = await promptDialog(parent ? 'Neuer Unterordner' : 'Neuer Ordner', parent ? 'Name des Unterordners in „' + groupPath(groups, parent) + '“' : 'Name des Ordners');
+    const name = await promptDialog(parent ? 'Neuer Unterordner' : 'Neuer Ordner', parent ? `Name des Unterordners in „${groupPath(groups, parent)}“` : 'Name des Ordners auf oberster Ebene');
     if (!name) return;
     const g = await run(() => api('/api/groups', { method: 'POST', body: { name, parent } }), 'Ordner angelegt');
     if (g) { if (parent) open.add(parent); select(g.id); }
   }
 
-  function dropTarget(el, id, name) {
+  function dropTarget(el, g) {
     el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('application/x-replays')) { e.preventDefault(); el.classList.add('drop'); } });
     el.addEventListener('dragleave', () => el.classList.remove('drop'));
     el.addEventListener('drop', async e => {
@@ -67,119 +40,130 @@ export async function mount(root, ctx) {
       const raw = e.dataTransfer.getData('application/x-replays');
       if (!raw) return;
       e.preventDefault();
-      await moveTo(JSON.parse(raw), id, name);
+      if (await moveTo(JSON.parse(raw), { id: g.id, name: groupPath(groups, g.id) })) sel.clear();
     });
   }
 
   function node(g, depth) {
-    const expanded = open.has(g.id);
-    const el = h('div', { class: 'tree-node' + (selectedNode === g.id ? ' active' : ''), role: 'treeitem', tabindex: 0,
-      'aria-expanded': g.children.length ? String(expanded) : null, style: { paddingLeft: 8 + depth * 14 + 'px' },
-      title: `${g.direct} direkt, ${g.indirect} mit Unterordnern`,
+    const kids = g.children.length > 0;
+    const toggle = () => { if (kids) { open.has(g.id) ? open.delete(g.id) : open.add(g.id); renderTree(); } };
+    const el = h('div', { class: 'node' + (g.id === selected ? ' on' : ''), role: 'treeitem', tabindex: 0, 'aria-selected': String(g.id === selected),
+      'aria-expanded': kids ? String(open.has(g.id)) : null, style: { paddingLeft: 8 + depth * 14 + 'px' }, title: `${g.direct} direkt, ${g.indirect} mit Unterordnern`,
       onclick: () => select(g.id),
       onkeydown: e => {
         if (e.key === 'Enter') select(g.id);
-        if (e.key === 'ArrowRight' && g.children.length) { open.add(g.id); renderTree(); }
-        if (e.key === 'ArrowLeft') { open.delete(g.id); renderTree(); }
+        else if (e.key === 'ArrowRight' && !open.has(g.id) || e.key === 'ArrowLeft' && open.has(g.id)) toggle();
       } },
-      h('span', { class: 'twisty', onclick: e => { e.stopPropagation(); expanded ? open.delete(g.id) : open.add(g.id); renderTree(); } },
-        g.children.length ? (expanded ? '▾' : '▸') : ''),
-      h('span', { class: 'ellipsis' }, g.name),
-      h('span', { class: 'count' }, g.indirect),
-      h('button', { class: 'icon-btn', style: { padding: '0 6px' }, 'aria-label': 'Aktionen für ' + g.name, onclick: e => {
-        e.stopPropagation();
-        menu(e.currentTarget, [
-          { label: 'Neuer Unterordner …', run: () => newFolder(g.id) },
-          { label: 'Auf ballchasing öffnen', run: () => window.open('https://ballchasing.com/group/' + g.id, '_blank', 'noopener') },
-          '-',
-          { label: 'Ordner löschen …', danger: true, run: async () => {
-            if (g.indirect > 0 || g.children.length) return run(async () => { throw new Error('Nur leere Ordner ohne Unterordner lassen sich löschen.'); });
-            if (await confirmDialog('Ordner löschen', `„${g.name}“ wird auf ballchasing gelöscht.`, 'Löschen', true)) {
-              await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht');
-              if (selectedNode === g.id) select('unsorted');
-            }
-          } },
-        ]);
-      } }, '⋯'));
-    dropTarget(el, g.id, groupPath(groups, g.id));
-    return [el, expanded ? h('div', { role: 'group' }, g.children.map(c => node(c, depth + 1))) : null];
+      h('button', { tabindex: -1, 'aria-label': 'Auf- oder zuklappen', onclick: e => { e.stopPropagation(); toggle(); } },
+        ico(kids ? (open.has(g.id) ? 'caret-down' : 'caret-right') : 'dot-outline')),
+      h('span', { class: 'grow ell' }, g.name), h('span', { class: 'sm n5 num' }, g.indirect));
+    dropTarget(el, g);
+    return el;
   }
 
   function renderTree() {
-    const inbox = h('div', { class: 'tree-node' + (selectedNode === 'unsorted' ? ' active' : ''), role: 'treeitem', tabindex: 0,
-      onclick: () => select('unsorted'), onkeydown: e => { if (e.key === 'Enter') select('unsorted'); } },
-      h('span', { class: 'twisty' }, '•'), h('span', null, 'Eingang (unsortiert)'), h('span', { class: 'count' }, unsorted));
-    dropTarget(inbox, '', 'Eingang');
-    fill(treeBox, inbox, h('hr', { class: 'sep', style: { margin: '6px 0' } }),
-      groups.length ? tree(groups).map(g => node(g, 0)) : h('div', { class: 'empty' }, 'Noch keine Ordner.'));
+    const out = [];
+    const walk = (list, depth) => {
+      for (const g of list) {
+        if (!filter || g.name.toLowerCase().includes(filter)) out.push(node(g, filter ? 0 : depth));
+        if (filter || open.has(g.id)) walk(g.children, depth + 1);
+      }
+    };
+    walk(tree(groups), 0);
+    fill(nodes, out.length ? out : h('div', { class: 'n5', style: { padding: '5px 8px' } }, groups.length ? 'Kein Ordner passt.' : 'Noch keine Ordner.'));
+    sync.textContent = ctx.state.syncing ? 'Abgleich läuft …' : synced ? 'Abgeglichen ' + fmt.rel(synced) : '';
   }
 
-  // --- right side ---
-  let list = null;
-  const selected = new Set();
+  const row = r => h('div', { class: 'row g-folder' + (sel.has(r.id) ? ' sel' : ''), draggable: 'true', onclick: () => { location.hash = '#/verlauf/' + r.id; },
+    ondragstart: e => {
+      e.dataTransfer.setData('application/x-replays', JSON.stringify(sel.has(r.id) ? [...sel] : [r.id]));
+      e.dataTransfer.effectAllowed = 'move';
+    } },
+    h('input', { type: 'checkbox', 'aria-label': 'Auswählen', checked: sel.has(r.id), onclick: e => e.stopPropagation(),
+      onchange: e => { e.target.checked ? sel.add(r.id) : sel.delete(r.id); renderPane(); } }),
+    resultBadge(r),
+    h('div', { class: 'ell' }, scoreLine(r), h('span', { class: 'sm n5' }, ' ' + mates(r))),
+    h('span', { class: 'ell n3', title: r.title }, r.title),
+    h('span', { class: 'ell n4' }, r.map),
+    h('span', { class: 'n4 num' }, fmt.dur(r.duration)),
+    h('span', { class: 'sm n4 num nowrap r' }, fmt.when(r.date)));
 
-  async function renderUnsorted() {
-    const [{ tips }, { sessions }] = await Promise.all([api('/api/suggestions'), api('/api/inbox')]);
-    const onSelect = (id, on) => { on ? selected.add(id) : selected.delete(id); renderUnsorted(); };
-    const bulk = selected.size ? h('div', { class: 'bulk' }, h('strong', null, `${selected.size} ausgewählt`),
-      h('button', { class: 'primary', onclick: async () => {
-        const f = await pickFolder(`${selected.size} Replays verschieben`, { inbox: false });
-        if (f) { await moveTo([...selected], f.id, f.name); selected.clear(); }
-      } }, 'In Ordner verschieben …'), h('span', { class: 'grow' }),
-      h('button', { class: 'ghost', onclick: () => { selected.clear(); renderUnsorted(); } }, 'Auswahl aufheben')) : null;
-    fill(right, 
-      h('div', { class: 'row' }, h('h2', { class: 'grow' }, 'Eingang'), h('a', { href: '#/eingang' }, 'Mit Tastatur einordnen')),
-      tips.length ? h('div', { class: 'card stack' }, h('h3', null, 'Vorschläge'), tips.map(t => h('div', { class: 'row' },
-        h('span', { class: 'grow' }, t.text),
-        h('button', { class: 'small primary', onclick: () => run(() => api('/api/suggestions/apply', { method: 'POST', body: { key: t.key } }), 'Übernommen') }, 'Übernehmen'),
-        h('button', { class: 'small ghost', onclick: () => run(() => api('/api/suggestions/ignore', { method: 'POST', body: { key: t.key } })) }, 'Ignorieren')))) : null,
-      sessions.length ? sessions.map(s => sessionBlock(s, { selected, onSelect, changed: renderUnsorted }))
-        : h('div', { class: 'card empty' }, 'Alles einsortiert.'),
-      bulk);
+  function renderPane() {
+    const g = groups.find(x => x.id === selected);
+    if (!g) return fill(pane, h('div', { class: 'empty' }, groups.length ? 'Wähle links einen Ordner.' : 'Noch keine Ordner. Lege einen an oder gleiche mit ballchasing ab.'));
+    const subs = groups.filter(x => x.parent === g.id).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    const ruleText = id => { const i = rules.findIndex(r => r.target_id === id); return i < 0 ? 'von Hand gefüllt' : `Regel ${i + 1} füllt diesen Ordner`; };
+    const ids = [...sel];
+    fill(pane,
+      h('div', { class: 'head tight', style: { flexWrap: 'wrap' } },
+        g.parent ? h('span', { class: 'n4', style: { fontSize: '13px' } }, groupPath(groups, g.parent) + ' ›') : null,
+        h('span', { style: { fontSize: '18px' } }, g.name),
+        h('span', { class: 'end actions' },
+          h('a', { class: 'btn btn-secondary', href: 'https://ballchasing.com/group/' + g.id, target: '_blank', rel: 'noopener noreferrer' }, ico('arrow-square-out'), 'ballchasing'),
+          h('button', { class: 'btn btn-secondary btn-icon', 'aria-label': 'Weitere Aktionen', title: 'Weitere Aktionen', onclick: e => menu(e.currentTarget, [
+            { label: 'Neuer Unterordner …', icon: 'folder-simple-plus', run: () => newFolder(g.id) },
+            '-',
+            { label: 'Ordner löschen …', icon: 'trash', danger: true, run: async () => {
+              if (g.indirect > 0 || subs.length) return flash('Nur leere Ordner ohne Unterordner lassen sich löschen.', 'err');
+              if (await confirmDialog('Ordner löschen', `„${g.name}“ wird auf ballchasing gelöscht.`, 'Löschen', true)
+                && await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht')) select(g.parent);
+            } },
+          ], { width: 220 }) }, ico('dots-three')))),
+      subs.length || items.length ? h('div', { class: 'rows' },
+        subs.map(s => h('div', { class: 'row g-folder', onclick: () => { open.add(g.id); select(s.id); } },
+          h('span'), h('span', { class: 'fbox' }, ico('folder-simple')), h('span', { class: 'ell' }, s.name),
+          h('span', { class: 'ell n4' }, `${s.indirect} Replays`), h('span', { class: 'ell sm n5' }, ruleText(s.id)), h('span'),
+          h('i', { class: 'ph ph-caret-right n5', style: { justifySelf: 'end' } }))),
+        items.map(row)) : h('div', { class: 'empty' }, 'In diesem Ordner liegen keine Replays.'),
+      items.length < total ? h('button', { class: 'btn btn-secondary more', onclick: () => loadItems(true) }, 'Mehr laden') : null,
+      ids.length ? h('div', { class: 'bulk' }, h('span', null, `${ids.length} ausgewählt`),
+        h('button', { class: 'btn btn-primary', onclick: async e => {
+          const f = await pickFolder(e.currentTarget, { current: g.id });
+          if (f && await moveTo(ids, f)) sel.clear();
+        } }, ico('folder-simple'), 'Verschieben'),
+        h('button', { class: 'btn btn-secondary', onclick: e => menu(e.currentTarget, Object.entries(visibilityNames).map(([v, label]) => ({ label, run: async () => {
+          const res = await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids, visibility: v } }));
+          if (res) flash(res.errors.length ? `${res.done} geändert, ${res.errors.length} fehlgeschlagen: ${res.errors[0]}` : `${res.done} Replays auf „${label}“`, res.errors.length ? 'err' : 'ok');
+        } })), { width: 180 }) }, ico('eye'), 'Sichtbarkeit'),
+        h('span', { class: 'vsep' }),
+        h('button', { class: 'btn btn-ghost btn-icon n4', 'aria-label': 'Auswahl aufheben', title: 'Auswahl aufheben', onclick: () => { sel.clear(); renderPane(); } }, ico('x'))) : null);
   }
 
-  async function renderGroup(g) {
-    list = createReplayList({ query: () => new URLSearchParams({ group: g.id, origin: 'own' }), empty: 'In diesem Ordner liegen keine Replays direkt.' });
-    fill(right, 
-      h('div', { class: 'row' }, h('h2', { class: 'grow' }, groupPath(groups, g.id)),
-        h('span', { class: 'muted' }, `${g.direct} direkt · ${g.indirect} mit Unterordnern`),
-        h('a', { class: 'btn', href: 'https://ballchasing.com/group/' + g.id, target: '_blank', rel: 'noopener noreferrer' }, 'Auf ballchasing ↗')),
-      list.el);
-    await list.load();
-  }
-
-  async function renderRight() {
-    const g = groups.find(x => x.id === selectedNode);
-    if (!g) { selectedNode = 'unsorted'; }
-    return g ? renderGroup(g) : renderUnsorted();
+  async function loadItems(more = false) {
+    if (!groups.some(g => g.id === selected)) { items = []; total = 0; return renderPane(); }
+    const q = new URLSearchParams({ group: selected, origin: 'own', offset: more ? items.length : 0, limit: more ? 100 : Math.max(100, items.length) });
+    const res = await api('/api/replays?' + q);
+    items = more ? items.concat(res.items) : res.items;
+    total = res.total;
+    const present = new Set(items.map(r => r.id));
+    for (const id of sel) if (!present.has(id)) sel.delete(id);
+    renderPane();
   }
 
   function select(id) {
-    selectedNode = id;
-    try { sessionStorage.setItem('ordner', id); } catch { /* private mode */ }
-    selected.clear();
+    selected = id || '';
+    try { sessionStorage.setItem('ordner', selected); } catch { /* private mode */ }
+    sel.clear();
+    items = [];
     renderTree();
-    renderRight();
+    loadItems();
   }
 
   async function load() {
-    const data = await loadGroups();
+    const [data, r] = await Promise.all([loadGroups(), api('/api/rules')]);
     groups = data.groups;
-    unsorted = data.unsorted;
-    syncBtn.disabled = data.syncing;
-    syncBtn.textContent = data.syncing ? 'Abgleich läuft …' : 'Aktualisieren';
-    // open the path to the selected folder
-    for (let g = groups.find(x => x.id === selectedNode); g && g.parent; g = groups.find(x => x.id === g.parent)) open.add(g.parent);
+    synced = data.synced;
+    rules = r.rules;
+    if (!groups.some(g => g.id === selected)) selected = tree(groups)[0]?.id || '';
+    for (let g = groups.find(x => x.id === selected); g?.parent; g = groups.find(x => x.id === g.parent)) open.add(g.parent);
     renderTree();
   }
 
   await load();
-  await renderRight();
-  const reloadTree = debounce(async () => { await load(); }, 300);
-  const reloadRight = debounce(() => { selectedNode === 'unsorted' ? renderUnsorted() : list?.load(); }, 400);
-  ctx.on('groups', reloadTree);
-  ctx.on('state', reloadTree);
-  ctx.on('replays', reloadRight);
-  ctx.on('inbox', reloadRight);
-  return { refresh: async () => { await load(); reloadRight(); } };
+  await loadItems();
+  ctx.on('groups', debounce(async () => { await load(); loadItems(); }, 300));
+  ctx.on('rules', debounce(async () => { await load(); renderPane(); }, 300));
+  ctx.on('replays', debounce(() => loadItems(), 400));
+  ctx.on('ui:state', renderTree);
+  return { refresh: async () => { await load(); loadItems(); } };
 }

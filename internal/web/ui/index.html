@@ -11,27 +11,18 @@
 <body>
 <div id="app">
   <nav id="nav" aria-label="Bereiche">
-    <div class="brand">
-      <span class="logo" aria-hidden="true"></span>
-      <span>auto-replay-upload</span>
-    </div>
-    <a href="#/uebersicht" data-route="uebersicht"><span class="ico ico-home"></span><span>Übersicht</span><span class="badge" data-badge="failed" hidden></span></a>
-    <a href="#/verlauf" data-route="verlauf"><span class="ico ico-list"></span><span>Verlauf</span></a>
-    <a href="#/statistik" data-route="statistik"><span class="ico ico-chart"></span><span>Statistik</span></a>
-    <a href="#/ordner" data-route="ordner"><span class="ico ico-folder"></span><span>Ordner</span></a>
-    <a href="#/eingang" data-route="eingang"><span class="ico ico-inbox"></span><span>Eingang</span><span class="badge muted" data-badge="inbox" hidden></span></a>
-    <a href="#/regeln" data-route="regeln"><span class="ico ico-rules"></span><span>Regeln</span><span class="badge muted" data-badge="rules" hidden></span></a>
-    <a href="#/einstellungen" data-route="einstellungen"><span class="ico ico-gear"></span><span>Einstellungen</span><span class="badge warn" data-badge="setup" hidden>!</span></a>
-    <div class="nav-foot" id="nav-foot"></div>
+    <span class="logo" aria-hidden="true"><i class="ph ph-upload-simple"></i></span>
+    <a href="#/uebersicht" data-route="uebersicht" aria-label="Übersicht" title="Übersicht"><i class="ph ph-house"></i><span class="ping" data-dot="failed" hidden></span></a>
+    <a href="#/eingang" data-route="eingang" aria-label="Eingang" title="Eingang"><i class="ph ph-tray"></i><span class="ping" data-dot="inbox" hidden></span></a>
+    <a href="#/verlauf" data-route="verlauf" aria-label="Verlauf" title="Verlauf"><i class="ph ph-list-bullets"></i></a>
+    <a href="#/ordner" data-route="ordner" aria-label="Ordner" title="Ordner"><i class="ph ph-folder"></i></a>
+    <a href="#/statistik" data-route="statistik" aria-label="Statistik" title="Statistik"><i class="ph ph-chart-bar"></i></a>
+    <a href="#/regeln" data-route="regeln" aria-label="Regeln" title="Regeln"><i class="ph ph-git-branch"></i></a>
+    <a class="gear" href="#/einstellungen" data-route="einstellungen" aria-label="Einstellungen" title="Einstellungen"><i class="ph ph-gear-six"></i><span class="ping" data-dot="setup" hidden></span></a>
+    <button id="close" hidden aria-label="Overlay schließen" title="Schließen (Esc)"><i class="ph ph-x"></i></button>
   </nav>
-  <div id="main">
-    <header id="top">
-      <h1 id="title"></h1>
-      <div id="status" class="status"></div>
-      <button id="close" class="icon-btn" hidden aria-label="Overlay schließen" title="Schließen (Esc)">✕</button>
-    </header>
-    <main id="view" tabindex="-1"></main>
-  </div>
+  <main id="view" tabindex="-1"></main>
+  <footer id="foot"></footer>
 </div>
 <div id="flash" role="status" aria-live="polite"></div>
 <div id="drop" hidden><div>Replays hier ablegen zum Hochladen</div></div>

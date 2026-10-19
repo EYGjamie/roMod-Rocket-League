@@ -38,13 +38,8 @@ export function h(tag, attrs, ...kids) {
   return el;
 }
 
-// svg builds an SVG element.
-export function svg(tag, attrs, ...kids) {
-  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  for (const [k, v] of Object.entries(attrs || {})) if (v != null) el.setAttribute(k, v);
-  for (const c of kids.flat(Infinity)) if (c != null) el.append(c instanceof Node ? c : String(c));
-  return el;
-}
+// ico is a Phosphor icon, sized by the font size or px.
+export const ico = (name, px) => h('i', { class: 'ph ph-' + name, 'aria-hidden': 'true', style: px ? { fontSize: px + 'px' } : null });
 
 // --- events from the server ---
 
@@ -67,16 +62,21 @@ export function debounce(fn, ms = 250) {
 
 // --- formatting ---
 
-const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-const dayFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const dayFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' });
+const weekdayFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
 const timeFmt = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
-const valid = d => d && !String(d).startsWith('0001');
+const valid = d => d && new Date(d).getFullYear() > 1; // Go's zero time is year 1
+const daysAgo = d => { const a = new Date(d), b = new Date(); a.setHours(0, 0, 0, 0); b.setHours(0, 0, 0, 0); return Math.round((b - a) / 864e5); };
+const yearOf = d => new Date(d).getFullYear() === new Date().getFullYear() ? '' : new Date(d).getFullYear();
 export const fmt = {
-  date: d => valid(d) ? dateFmt.format(new Date(d)) : '–',
-  day: d => valid(d) ? dayFmt.format(new Date(d)) : '–',
   clock: d => valid(d) ? timeFmt.format(new Date(d)) : '–',
+  // day is "heute", "gestern" or the date; title gives "Heute" or "Do., 16.10.".
+  day: d => !valid(d) ? '–' : ['heute', 'gestern'][daysAgo(d)] || dayFmt.format(new Date(d)) + yearOf(d),
+  title: d => !valid(d) ? '–' : ['Heute', 'Gestern'][daysAgo(d)] || weekdayFmt.format(new Date(d)) + yearOf(d),
+  // when is "heute 20:36", "gestern 22:14" or "16.10. 18:10"; short drops "heute".
+  when: (d, short) => !valid(d) ? '–' : (short && daysAgo(d) === 0 ? '' : fmt.day(d) + ' ') + fmt.clock(d),
   dur: s => s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '–',
-  pct: (a, b) => b > 0 ? Math.round(100 * a / b) + ' %' : '–',
+  pct: (a, b) => b > 0 ? Math.round(100 * a / b) + '%' : '–',
   rel(d) {
     if (!valid(d)) return '';
     const s = (new Date(d) - Date.now()) / 1000;
@@ -92,12 +92,20 @@ export const visibilityNames = { public: 'Öffentlich', unlisted: 'Nicht geliste
 // tierNames are the patron tiers of ballchasing.
 export const tierNames = { regular: 'ohne Patreon', gold: 'Gold', diamond: 'Diamond', champion: 'Champion', gc: 'Grand Champion' };
 
+const playlistNames = {
+  'ranked-duels': 'Ranked 1s', 'ranked-doubles': 'Ranked 2s', 'ranked-standard': 'Ranked 3s', 'ranked-solo-standard': 'Solo 3s',
+  'unranked-duels': 'Casual 1s', 'unranked-doubles': 'Casual 2s', 'unranked-standard': 'Casual 3s', 'unranked-chaos': 'Casual 4s',
+  tournament: 'Turnier', private: 'Privat',
+};
+// plName is the short name of a playlist, else the server's name.
+export const plName = (id, name) => playlistNames[id] || name || id || '–';
+
 // uploadQuota is the 24-hour upload count of an account, or null when
 // ballchasing sent no limit.
 export function uploadQuota(acc) {
   const q = acc?.uploads_24h;
   if (acc?.status !== 'ok' || !q?.max) return null;
-  return { text: `${q.used} von ${q.max}`, full: q.used >= q.max };
+  return { used: q.used, max: q.max, full: q.used >= q.max };
 }
 
 // system describes the operating system the tool runs on, from the state's
@@ -114,17 +122,18 @@ export const stateNames = {
 
 // --- feedback ---
 
-export function flash(text, kind = '') {
-  const el = h('div', { class: 'flash ' + kind }, text);
+export function flash(text, kind = 'ok') {
+  const el = h('div', { class: kind === 'err' ? 'toast bad' : 'toast' }, ico(kind === 'err' ? 'warning' : 'check'), h('span', null, text),
+    h('button', { 'aria-label': 'Schließen', onclick: () => el.remove() }, ico('x')));
   document.getElementById('flash').append(el);
-  setTimeout(() => el.remove(), kind === 'err' ? 7000 : 3500);
+  setTimeout(() => el.remove(), kind === 'err' ? 7000 : 5000);
 }
 
 // run executes an async action and reports errors.
 export async function run(fn, okText) {
   try {
     const r = await fn();
-    if (okText) flash(typeof okText === 'function' ? okText(r) : okText, 'ok');
+    if (okText) flash(typeof okText === 'function' ? okText(r) : okText);
     return r;
   } catch (e) {
     flash(e.message, 'err');
@@ -134,7 +143,7 @@ export async function run(fn, okText) {
 
 // modal shows a dialog; build receives a close function and returns the
 // body. Resolves with what close is given.
-export function modal(title, build, { wide } = {}) {
+export function modal(title, build) {
   return new Promise(resolve => {
     const prev = document.activeElement;
     let bg;
@@ -145,66 +154,83 @@ export function modal(title, build, { wide } = {}) {
       resolve(v);
     };
     const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
-    const box = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, style: wide ? { width: 'min(760px, 100%)' } : null },
-      h('div', { class: 'modal-head' }, h('h2', null, title), h('button', { class: 'icon-btn', 'aria-label': 'Schließen', onclick: () => close(null) }, '✕')),
-      build(close));
-    bg = h('div', { class: 'overlay-bg', onmousedown: e => { if (e.target === bg) close(null); } }, box);
+    const box = h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, h('h2', null, title), build(close));
+    bg = h('div', { class: 'backdrop', onmousedown: e => { if (e.target === bg) close(null); } }, box);
     document.body.append(bg);
     document.addEventListener('keydown', onKey, true);
-    (box.querySelector('[autofocus]') || box.querySelector('input, select, button.primary') || box).focus?.();
+    (box.querySelector('[autofocus]') || box.querySelector('input, select, .btn-primary') || box).focus?.();
   });
 }
 
 export function confirmDialog(title, text, okLabel = 'OK', danger = false) {
   return modal(title, close => [
-    h('div', { class: 'modal-body' }, text),
-    h('div', { class: 'modal-foot' },
-      h('button', { onclick: () => close(false) }, 'Abbrechen'),
-      h('button', { class: danger ? 'primary danger' : 'primary', onclick: () => close(true), autofocus: true }, okLabel)),
+    h('div', { class: 'dialog-body' }, text),
+    h('div', { class: 'dialog-actions' },
+      h('button', { class: 'btn btn-secondary', onclick: () => close(false) }, 'Abbrechen'),
+      h('button', { class: 'btn btn-primary' + (danger ? ' danger' : ''), onclick: () => close(true), autofocus: true }, okLabel)),
   ]);
 }
 
 export function promptDialog(title, label, value = '') {
   return modal(title, close => {
-    const input = h('input', { type: 'text', value, autofocus: true, style: { width: '100%' }, onkeydown: e => { if (e.key === 'Enter') close(input.value.trim() || null); } });
+    const input = h('input', { class: 'input', type: 'text', value, autofocus: true, 'aria-label': label, onkeydown: e => { if (e.key === 'Enter') close(input.value.trim() || null); } });
     return [
-      h('div', { class: 'modal-body stack' }, h('label', null, label), input),
-      h('div', { class: 'modal-foot' }, h('button', { onclick: () => close(null) }, 'Abbrechen'),
-        h('button', { class: 'primary', onclick: () => close(input.value.trim() || null) }, 'OK')),
+      h('div', { class: 'dialog-body stack' }, h('label', null, label), input),
+      h('div', { class: 'dialog-actions' }, h('button', { class: 'btn btn-secondary', onclick: () => close(null) }, 'Abbrechen'),
+        h('button', { class: 'btn btn-primary', onclick: () => close(input.value.trim() || null) }, 'OK')),
     ];
   });
 }
 
-// menu opens a popup menu at the anchor. items: {label, run, danger,
-// checked} or '-' for a separator.
-export function menu(anchor, items) {
-  document.querySelector('.menu')?.remove();
+// menu opens a dropdown under the anchor. items: {label, run, icon, on,
+// danger, accent, count, pad}, {section} for a heading or '-' for a line.
+// onDismiss runs when it closes without a choice.
+export function menu(anchor, items, { width = 250, onDismiss } = {}) {
+  document.querySelector('.menu')?.dismiss();
   const close = () => { m.remove(); document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', key, true); };
-  const outside = e => { if (!m.contains(e.target)) close(); };
+  const dismiss = () => { close(); onDismiss?.(); };
+  const outside = e => { if (!m.contains(e.target)) dismiss(); };
   const key = e => {
     const buttons = [...m.querySelectorAll('button')];
     const i = buttons.indexOf(document.activeElement);
-    if (e.key === 'Escape') { close(); anchor.focus(); e.stopPropagation(); }
+    if (e.key === 'Escape') { dismiss(); anchor.focus(); e.stopPropagation(); }
     if (e.key === 'ArrowDown') { buttons[(i + 1) % buttons.length].focus(); e.preventDefault(); }
     if (e.key === 'ArrowUp') { buttons[(i - 1 + buttons.length) % buttons.length].focus(); e.preventDefault(); }
   };
-  const m = h('div', { class: 'menu', role: 'menu' }, items.filter(Boolean).map(it => it === '-' ? h('hr') :
-    h('button', { role: 'menuitem', class: it.danger ? 'danger' : '', onclick: () => { close(); it.run(); } },
-      it.checked !== undefined ? (it.checked ? '✓ ' : ' ') : '', it.label)));
+  const m = h('div', { class: 'menu', role: 'menu', style: { width: width + 'px' } }, items.filter(Boolean).map(it => it === '-' ? h('hr')
+    : it.section ? h('div', { class: 'sec' }, it.section)
+      : h('button', { role: 'menuitem', class: [it.on && 'on', it.danger && 'danger', it.accent && 'accent'].filter(Boolean).join(' '),
+        style: it.pad ? { paddingLeft: it.pad + 'px' } : null, onclick: () => { close(); it.run(); } },
+      it.icon ? ico(it.icon) : null, h('span', null, it.label), it.count != null ? h('span', { class: 'count' }, it.count) : null,
+      it.on !== undefined ? h('i', { class: 'ph ph-check', style: { visibility: it.on ? 'visible' : 'hidden' } }) : null)));
+  m.dismiss = dismiss;
   document.body.append(m);
   const r = anchor.getBoundingClientRect();
   const w = m.offsetWidth, ht = m.offsetHeight;
-  m.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
   m.style.top = (r.bottom + ht + 8 > innerHeight ? Math.max(8, r.top - ht - 4) : r.bottom + 4) + 'px';
   document.addEventListener('mousedown', outside, true);
   document.addEventListener('keydown', key, true);
   m.querySelector('button')?.focus();
 }
 
-export function sw(checked, onchange, label) {
-  return h('label', { class: 'switch' },
-    h('input', { type: 'checkbox', checked, onchange: e => onchange(e.target.checked) }),
-    h('span', { class: 'track' }), label ? h('span', null, label) : null);
+// sw is a switch; it flips at once and reports the new value.
+export function sw(on, onchange, label) {
+  const b = h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': String(!!on), 'aria-label': label, onclick: e => {
+    e.stopPropagation();
+    on = !on;
+    b.setAttribute('aria-checked', String(on));
+    onchange(on);
+  } });
+  return b;
+}
+
+// seg is a segmented control of [value, label] options.
+let segs = 0;
+export function seg(options, current, onPick, small) {
+  const name = 'seg' + ++segs;
+  return h('span', { class: 'seg' + (small ? ' sm' : '') }, options.map(([v, label]) => h('label', { class: 'seg-opt' },
+    h('input', { type: 'radio', name, checked: v === current, onchange: () => onPick(v) }), label)));
 }
 
 // --- folders ---
@@ -236,184 +262,74 @@ export function groupPath(groups, id) {
   return parts.join(' › ');
 }
 
-// pickFolder lets the user choose a folder, or create one. Resolves to
-// {id, name} ("" id for the inbox) or null.
-export async function pickFolder(title = 'In Ordner verschieben', { inbox = true, ok = 'Verschieben' } = {}) {
+// folderOptions lists the folders by path for a select.
+export function folderOptions(groups, selected) {
+  const out = [];
+  const walk = nodes => {
+    for (const g of nodes) {
+      out.push(h('option', { value: g.id, selected: g.id === selected }, groupPath(groups, g.id)));
+      walk(g.children);
+    }
+  };
+  walk(tree(groups));
+  return out;
+}
+
+// pickFolder opens the folder dropdown at the anchor: suggestions first,
+// then all folders and a new one. Resolves to {id, name} or null.
+export async function pickFolder(anchor, { suggestions = [], current = '' } = {}) {
   const { groups } = await loadGroups();
-  return modal(title, close => {
-    let filter = '';
-    let selected = null;
-    const open = new Set();
-    const list = h('div', { class: 'picker', role: 'tree' });
-    const name = h('input', { type: 'text', placeholder: 'Name des neuen Ordners', style: { flex: '1' } });
-    const where = h('span', { class: 'muted' });
-    const render = () => {
-      const match = g => !filter || g.name.toLowerCase().includes(filter) || g.children.some(match);
-      const node = (g, depth) => {
-        if (!match(g)) return null;
-        const expanded = open.has(g.id) || filter;
-        return [h('div', {
-          class: 'tree-node' + (selected?.id === g.id ? ' active' : ''), role: 'treeitem', tabindex: 0,
-          style: { paddingLeft: 8 + depth * 16 + 'px' },
-          onclick: () => { selected = { id: g.id, name: groupPath(groups, g.id) }; render(); },
-          ondblclick: () => close({ id: g.id, name: groupPath(groups, g.id) }),
-          onkeydown: e => { if (e.key === 'Enter') close({ id: g.id, name: groupPath(groups, g.id) }); },
-        },
-          h('span', { class: 'twisty', onclick: e => { e.stopPropagation(); open.has(g.id) ? open.delete(g.id) : open.add(g.id); render(); } },
-            g.children.length ? (expanded ? '▾' : '▸') : ''),
-          h('span', { class: 'ellipsis' }, g.name), h('span', { class: 'count' }, g.indirect || '')),
-        expanded ? g.children.map(c => node(c, depth + 1)) : null];
-      };
-      fill(list, 
-        inbox ? h('div', { class: 'tree-node' + (selected?.id === '' ? ' active' : ''), tabindex: 0,
-          onclick: () => { selected = { id: '', name: 'Eingang' }; render(); }, ondblclick: () => close({ id: '', name: 'Eingang' }) },
-          h('span', { class: 'twisty' }), h('span', null, 'Eingang (kein Ordner)')) : null,
-        tree(groups).map(g => node(g, 0)));
-      where.textContent = selected && selected.id ? 'in „' + selected.name + '“' : 'auf oberster Ebene';
+  return new Promise(resolve => {
+    const pick = (id, name) => () => resolve({ id, name });
+    const all = [];
+    const walk = (nodes, depth) => {
+      for (const g of nodes) {
+        all.push({ label: g.name, icon: depth ? 'folder-simple' : 'folders', count: g.indirect, pad: 8 + 20 * depth, on: g.id === current, run: pick(g.id, groupPath(groups, g.id)) });
+        walk(g.children, depth + 1);
+      }
     };
-    render();
-    const create = async () => {
-      const n = name.value.trim();
-      if (!n) return name.focus();
-      const parent = selected && selected.id ? selected.id : '';
-      const g = await run(() => api('/api/groups', { method: 'POST', body: { name: n, parent } }));
-      if (g) close({ id: g.id, name: (parent ? selected.name + ' › ' : '') + n });
-    };
-    return [
-      h('div', { class: 'modal-body stack' },
-        h('input', { type: 'search', placeholder: 'Ordner suchen …', autofocus: true, style: { width: '100%' },
-          oninput: e => { filter = e.target.value.trim().toLowerCase(); render(); } }),
-        list,
-        h('div', { class: 'row nowrap' }, name, h('button', { onclick: create }, '+ Neuer Ordner')), where),
-      h('div', { class: 'modal-foot' }, h('button', { onclick: () => close(null) }, 'Abbrechen'),
-        h('button', { class: 'primary', onclick: () => selected && close(selected) }, ok)),
-    ];
+    walk(tree(groups), 0);
+    menu(anchor, [
+      ...(suggestions.length ? [{ section: 'Vorschläge' }, ...suggestions.map(s => ({ label: s.name, icon: 'sparkle', on: s.group_id === current, run: pick(s.group_id, s.name) })), '-'] : []),
+      { section: 'Alle Ordner' }, ...all, all.length ? '-' : null,
+      { label: 'Neuer Ordner', icon: 'folder-simple-plus', accent: true, run: async () => {
+        const name = await promptDialog('Neuer Ordner', 'Name des Ordners auf oberster Ebene');
+        const g = name && await run(() => api('/api/groups', { method: 'POST', body: { name, parent: '' } }));
+        resolve(g ? { id: g.id, name } : null);
+      } },
+    ], { onDismiss: () => resolve(null) });
   });
+}
+
+// moveTo moves replays into a folder and reports it; resolves to the number
+// moved. quiet leaves the success message to the caller.
+export async function moveTo(ids, f, quiet) {
+  const res = await run(() => api('/api/replays/move', { method: 'POST', body: { ids, group: f.id } }));
+  if (!res) return 0;
+  if (res.errors.length) flash(`${res.done} verschoben, ${res.errors.length} fehlgeschlagen: ${res.errors[0]}`, 'err');
+  else if (!quiet) flash(`${res.done === 1 ? 'Replay' : res.done + ' Replays'} nach „${f.name}“ verschoben`);
+  return res.done;
 }
 
 // --- replays ---
 
 export function resultBadge(r) {
-  const cls = r.result || 'none';
-  return h('span', { class: 'res ' + cls, title: r.result === 'win' ? 'Sieg' : r.result === 'loss' ? 'Niederlage' : 'ohne Ergebnis' },
+  return h('span', { class: 'res ' + (r.result || 'none'), title: r.result === 'win' ? 'Sieg' : r.result === 'loss' ? 'Niederlage' : 'ohne Ergebnis' },
     r.result === 'win' ? 'S' : r.result === 'loss' ? 'N' : '–');
 }
 
 export function scoreLine(r) {
-  return h('span', { class: 'score' },
-    h('span', { class: 'b' }, (r.blue.name || 'Blau') + ' ' + r.blue.goals), ' : ',
-    h('span', { class: 'o' }, r.orange.goals + ' ' + (r.orange.name || 'Orange')));
+  return h('span', { class: 'nowrap' },
+    h('span', { class: 'blue' }, (r.blue.name || 'Blau') + ' ' + r.blue.goals), ' : ',
+    h('span', { class: 'orange' }, r.orange.goals + ' ' + (r.orange.name || 'Orange')));
 }
 
-const names = t => t.players.map(p => p.name).join(', ');
-
-// playerTable shows the core numbers of both teams.
-export function playerTable(r) {
-  const rows = [];
-  for (const [team, cls] of [[r.blue, 'b'], [r.orange, 'o']]) {
-    for (const p of team.players) {
-      rows.push(h('tr', { class: p.me ? 'me' : '' },
-        h('td', null, h('span', { class: cls }, '●'), ' ', p.name, p.mvp ? h('span', { class: 'tag', style: { marginLeft: '6px' } }, 'MVP') : null),
-        h('td', { class: 'num' }, p.score),
-        h('td', { class: 'num' }, p.core ? p.goals : '–'),
-        h('td', { class: 'num' }, p.core ? p.assists : '–'),
-        h('td', { class: 'num' }, p.core ? p.saves : '–'),
-        h('td', { class: 'num' }, p.core ? p.shots : '–')));
-    }
-  }
-  return h('table', { class: 'stats' },
-    h('thead', null, h('tr', null, ['Spieler', 'Punkte', 'Tore', 'Vorlagen', 'Paraden', 'Schüsse'].map(t => h('th', null, t)))),
-    h('tbody', null, rows));
-}
-
-// replayActions returns the menu entries for a replay.
-export function replayActions(r, changed) {
-  const items = [];
-  if (r.own) {
-    items.push({ label: 'In Ordner verschieben …', run: async () => {
-      const f = await pickFolder();
-      if (f) await run(() => api('/api/replays/move', { method: 'POST', body: { ids: [r.id], group: f.id } }), 'Nach „' + f.name + '“ verschoben');
-      changed();
-    } });
-    for (const v of ['public', 'unlisted', 'private']) {
-      items.push({ label: 'Sichtbarkeit: ' + visibilityNames[v], checked: r.visibility === v, run: async () => {
-        await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids: [r.id], visibility: v } }), 'Sichtbarkeit geändert');
-        changed();
-      } });
-    }
-    items.push('-');
-  }
-  if (!r.borrowed) {
-    items.push({ label: 'Ins Spiel laden', run: async () => {
-      const res = await run(() => api('/api/replays/' + r.id + '/borrow', { method: 'POST' }), 'Liegt jetzt im Replay-Ordner. Im Spiel unter „Replays“ öffnen.');
-      if (res) changed();
-    } });
-  } else {
-    const keep = r.borrowed === 'temp';
-    items.push({ label: keep ? 'Geladene Datei behalten' : 'Geladene Datei wieder löschen lassen', run: async () => {
-      await run(() => api('/api/replays/' + r.id + '/keep', { method: 'POST', body: { keep } }));
-      changed();
-    } });
-  }
-  if (r.local) items.push({ label: 'Datei im Ordner zeigen', run: () => run(() => api('/api/replays/' + r.id + '/reveal', { method: 'POST' })) });
-  items.push({ label: 'Alle Statistiken', run: () => { location.hash = '#/verlauf/' + r.id; } });
-  items.push({ label: 'Auf ballchasing öffnen', run: () => window.open(r.link, '_blank', 'noopener') });
-  if (r.own) {
-    items.push('-', { label: 'Auf ballchasing löschen …', danger: true, run: async () => {
-      if (await confirmDialog('Replay löschen', 'Das Replay wird auf ballchasing endgültig gelöscht. Das lässt sich nicht rückgängig machen.', 'Endgültig löschen', true)) {
-        await run(() => api('/api/replays/delete', { method: 'POST', body: { ids: [r.id] } }), 'Gelöscht');
-        changed();
-      }
-    } });
-  }
-  return items;
-}
-
-// replayRow renders one replay of a list. opts: selected (Set of ids,
-// selection on if given), onSelect, expanded (Set), changed, current.
-export function replayRow(r, opts = {}) {
-  const selectable = opts.selected && r.own;
-  const isSel = selectable && opts.selected.has(r.id);
-  const open = opts.expanded && opts.expanded.has(r.id);
-  const row = h('div', {
-    class: 'item' + (isSel ? ' selected' : '') + (opts.current ? ' current' : ''), 'data-id': r.id, draggable: r.own ? 'true' : null,
-    ondragstart: e => {
-      const ids = opts.selected && opts.selected.has(r.id) ? [...opts.selected] : [r.id];
-      e.dataTransfer.setData('application/x-replays', JSON.stringify(ids));
-      e.dataTransfer.effectAllowed = 'move';
-    },
-  },
-    selectable ? h('input', { type: 'checkbox', checked: isSel, 'aria-label': 'Auswählen',
-      onclick: e => { e.stopPropagation(); opts.onSelect(r.id, e.target.checked, e.shiftKey); } }) : h('span'),
-    resultBadge(r),
-    h('div', { class: 'grow', style: { cursor: 'pointer' }, onclick: () => opts.onToggle && opts.onToggle(r.id) },
-      scoreLine(r), h('div', { class: 'faint ellipsis', style: { fontSize: '12px' } }, names(r.blue) + ' – ' + names(r.orange))),
-    h('div', { class: 'hide-sm ellipsis' }, r.playlist || '–'),
-    h('div', { class: 'hide-sm ellipsis muted' }, r.map),
-    h('div', { class: 'hide-sm num muted' }, fmt.dur(r.duration), r.overtime ? ' OT' : ''),
-    h('div', { class: 'hide-sm keep-sm', style: { minWidth: 0 } },
-      r.own ? (r.group ? h('span', { class: 'tag', title: r.group }, r.group) : h('span', { class: 'tag' }, 'Eingang'))
-        : h('span', { class: 'tag', title: 'hochgeladen von ' + r.uploader }, 'von ' + r.uploader),
-      r.borrowed ? h('span', { class: 'tag', style: { marginLeft: '4px' }, title: 'liegt im Replay-Ordner' }, '▶ im Spiel') : null,
-      h('div', { class: 'when' }, fmt.date(r.date))),
-    h('div', { class: 'actions' },
-      h('a', { class: 'icon-btn', href: r.link, target: '_blank', rel: 'noopener noreferrer', title: 'Auf ballchasing öffnen', 'aria-label': 'Auf ballchasing öffnen' }, '↗'),
-      h('button', { class: 'icon-btn', title: 'Weitere Aktionen', 'aria-label': 'Weitere Aktionen', onclick: e => menu(e.currentTarget, replayActions(r, opts.changed || (() => {}))) }, '⋯')),
-    open ? h('div', { class: 'item-detail' },
-      r.blue.players.concat(r.orange.players).some(p => p.core) ? playerTable(r) : h('div', { class: 'muted' }, 'Statistiken werden geladen …'),
-      h('div', { class: 'row', style: { marginTop: '8px' } },
-        h('a', { href: '#/verlauf/' + r.id }, 'Alle Statistiken'), r.own ? null : h('span', { class: 'muted' }, 'Hochgeladen von ' + r.uploader))) : null);
-  if (open && !r.blue.players.concat(r.orange.players).some(p => p.core) && opts.loadDetail) opts.loadDetail(r.id);
-  return row;
-}
-
-export function fileRow(f, retry) {
-  return h('div', { class: 'item file' },
-    h('span', { class: 'res loss', title: stateNames[f.state] }, '!'),
-    h('div', { class: 'grow' }, h('div', { class: 'ellipsis' }, f.name),
-      h('div', { class: 'faint', style: { fontSize: '12px' } }, stateNames[f.state] || f.state, f.error ? ' · ' + f.error : '')),
-    h('div', { class: 'when' }, fmt.date(f.added)),
-    retry ? h('button', { class: 'small', onclick: () => retry(f.name) }, 'Jetzt erneut') : h('span'));
+// mates names the user's teammates: "mit Kev, Lumi", "allein" or "".
+export function mates(r) {
+  const team = r[r.my_team];
+  if (!team?.players) return '';
+  const names = team.players.filter(p => !p.me).map(p => p.name);
+  return names.length ? 'mit ' + names.join(', ') : 'allein';
 }
 
 // uploadFiles sends dropped or picked replay files to the queue.

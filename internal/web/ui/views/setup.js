@@ -1,8 +1,5 @@
-import { api, h, fill, run, sw, on, debounce, visibilityNames, groupPath, system } from '../lib.js';
-import { tokenForm, identityEditor, keyCapture, testKeyButton, saveKeyMissing } from './settings.js';
-import { folderOptions } from './history.js';
-
-export const title = 'Einrichtung';
+import { api, h, ico, fill, fmt, run, flash, seg, debounce, visibilityNames, groupPath, folderOptions, system, tierNames, plName } from '../lib.js';
+import { tokenForm, tokenHint, identityEditor, keyCapture, testKeyButton, saveKeyMissing } from './settings.js';
 
 const stepNames = ['ballchasing', 'Replay-Ordner', 'Speichern-Taste', 'Upload & Ordner', 'Alte Replays'];
 
@@ -11,11 +8,14 @@ export async function mount(root, ctx) {
   let step = Number((() => { try { return sessionStorage.getItem('einrichtung'); } catch { return null; } })() || 0);
   let info = await api('/api/setup');
   let settings = await api('/api/settings');
+  const { playlists } = await api('/api/rules');
   const rules = info.defaults.map(r => ({ ...r, on: true }));
-  let backfill = 'none';
-  let off = null;
+  let backfill = '30';
+  const box = h('div', { class: 'wizard' });
+  const ids = h('div');
+  root.append(h('div', { class: 'wizard-page' }, box));
 
-  const later = h('button', { class: 'ghost', onclick: finish }, 'Später einrichten');
+  const save = async patch => { settings = await run(() => api('/api/settings', { method: 'PUT', body: patch })) || settings; };
 
   async function finish() {
     await run(() => api('/api/setup/done', { method: 'POST' }));
@@ -23,146 +23,104 @@ export async function mount(root, ctx) {
     location.hash = '#/uebersicht';
   }
 
-  function go(n) {
+  async function go(n) {
     step = n;
     try { sessionStorage.setItem('einrichtung', String(n)); } catch { /* private mode */ }
+    [info, settings] = await Promise.all([api('/api/setup'), api('/api/settings')]);
     render();
   }
 
-  const nav = (next, label = 'Weiter') => h('div', { class: 'row', style: { marginTop: '16px' } },
-    step > 0 ? h('button', { onclick: () => go(step - 1) }, 'Zurück') : null, h('span', { class: 'grow' }), later,
-    h('button', { class: 'primary', onclick: next }, label));
-
-  async function stepAccount() {
-    const acc = (await api('/api/state')).account;
-    const ids = h('div');
-    const showIDs = async () => {
-      fill(ids, h('h3', { style: { marginTop: '18px' } }, 'Bist du das?'),
-        h('div', { class: 'muted', style: { margin: '6px 0 10px' } }, 'Aus deinen Uploads erkannt. Damit zählen Sieg und Niederlage für dich. Erscheint hier noch nichts, läuft der Abgleich mit ballchasing noch.'),
-        await identityEditor());
-    };
-    if (acc.status === 'ok') showIDs();
-    off?.();
-    off = on('state', debounce(() => { if (step === 0) showIDs(); }, 1500));
-    return [
-      h('h2', null, 'Mit ballchasing verbinden'),
-      h('p', { class: 'muted' }, 'Das Tool lädt deine Replays mit deinem Upload-Token hoch. Melde dich auf ballchasing.com mit Steam an und kopiere den Token von der Upload-Seite.'),
-      acc.status === 'ok' ? h('div', { class: 'banner info' }, 'Verbunden als ' + acc.name + '.') : tokenForm(() => render(), sys),
-      ids,
-      nav(() => go(1)),
-    ];
+  async function showIDs() {
+    fill(ids, h('div', { class: 'sm n4', style: { margin: 'var(--space-4) 0 var(--space-1)' } }, 'Bist du das? Damit zählen Sieg und Niederlage für dich.'), await identityEditor());
   }
 
-  async function stepFolders() {
-    info = await api('/api/setup');
-    const input = h('input', { type: 'text', placeholder: 'Anderen Ordner hinzufügen', style: { flex: '1' } });
-    return [
-      h('h2', null, 'Replay-Ordner'),
-      h('p', { class: 'muted' }, {
-        windows: 'Hier speichert Rocket League die Replays. Steam und Epic nutzen verschiedene Ordner, beide werden beobachtet.',
-        linux: 'Rocket League läuft unter Proton oder Wine und speichert die Replays in dessen Präfix. Gefunden werden Steam (auch weitere Bibliotheken, Flatpak und Snap), Heroic, Lutris, Bottles und Wine.',
-        darwin: 'Rocket League läuft auf dem Mac unter Wine und speichert die Replays in der Flasche. Gefunden werden CrossOver, Whisky und Heroic.',
-      }[sys.os] || 'Hier speichert Rocket League die Replays.'),
-      info.dirs.length ? h('div', { class: 'list' }, info.dirs.map(d => h('div', { class: 'item', style: { gridTemplateColumns: '1fr auto' } },
-        h('span', { class: 'ellipsis', title: d.path }, d.path), h('span', { class: 'muted' }, d.exists ? d.replays + ' Replays' : 'noch nicht vorhanden'))))
-        : h('div', { class: 'banner warn' }, 'Kein Replay-Ordner gefunden. Bitte den Ordner TAGame/Demos des Spiels hinzufügen; er erscheint, sobald das Spiel das erste Replay gespeichert hat.'),
-      h('div', { class: 'row nowrap', style: { marginTop: '10px' } }, input, h('button', { onclick: async () => {
-        const p = input.value.trim();
-        if (!p) return;
-        settings = await run(() => api('/api/settings', { method: 'PUT', body: { demo_dirs: [...(settings.demo_dirs.length ? settings.demo_dirs : info.dirs.map(d => d.path)), p] } })) || settings;
-        info = await api('/api/setup');
-        render();
-      } }, 'Hinzufügen')),
-      nav(() => go(2)),
-    ];
+  // steps: [question, body, next]
+  const steps = [
+    () => [info.account.status === 'ok' ? 'Mit ballchasing verbunden' : 'Mit ballchasing verbinden', [
+      tokenForm(() => go(0), true),
+      info.account.status === 'ok'
+        ? h('span', { class: 'sm a3' }, 'Angemeldet als ' + info.account.name + (info.account.tier ? ', ' + (tierNames[info.account.tier] || info.account.tier) : ''))
+        : h('span', { class: 'sm n5' }, 'Den Token findest du auf ', h('a', { href: 'https://ballchasing.com/upload', target: '_blank', rel: 'noopener noreferrer' }, 'ballchasing.com/upload'),
+          ' (nach dem Anmelden mit Steam). ' + tokenHint(sys) + '. Die Upload-Menge hängt von deinem Patreon-Status bei ballchasing ab.'),
+      info.account.status === 'ok' ? ids : null,
+    ], () => go(1)],
+    () => [info.dirs.length ? 'Wir haben diese Replay-Ordner gefunden' : 'Wo speichert Rocket League die Replays?', [
+      info.dirs.map(d => h('div', { class: 'card-row' }, ico(d.exists ? 'check' : 'warning'), h('span', { class: 'mono ell', title: d.path }, d.path),
+        h('span', { class: 'n4' }, d.exists ? fmt.num(d.replays) + ' Replays' : 'noch nicht vorhanden'))),
+      info.dirs.length ? null : h('div', { class: 'note warn' }, 'Kein Replay-Ordner gefunden. Bitte den Ordner TAGame/Demos des Spiels hinzufügen; er erscheint, sobald das Spiel das erste Replay gespeichert hat.'),
+      h('input', { class: 'input', type: 'text', placeholder: 'Anderen Ordner hinzufügen, z. B. ' + (sys.windows ? 'D:\\Replays' : '~/Replays'), 'aria-label': 'Replay-Ordner hinzufügen',
+        onkeydown: async e => {
+          const p = e.target.value.trim();
+          if (e.key !== 'Enter' || !p) return;
+          await save({ demo_dirs: [...(settings.demo_dirs.length ? settings.demo_dirs : info.dirs.map(d => d.path)), p] });
+          go(1);
+        } }),
+    ], () => go(2)],
+    () => [sys.save_key ? 'Welche Taste speichert im Spiel Replays?' : 'Rocket League verbinden', [
+      ctx.state.stats_api ? h('div', { class: 'ctl n3', style: { gap: '6px', fontSize: '13px' } }, h('span', { class: 'led' }), 'Rocket League ist verbunden')
+        : h('div', { class: 'note warn' },
+          h('div', null, 'Rocket League ist nicht verbunden. Läuft das Spiel, ist die Stats API wahrscheinlich aus. Spiel beenden, im Installationsordner ',
+            sys.windows ? 'TAGame\\Config\\TAStatsAPI.ini' : 'TAGame/Config/TAStatsAPI.ini', ' öffnen und eintragen:'),
+          h('pre', null, '[TAGame.MatchStatsExporter_TA]\nPacketSendRate=1\nPort=49123'),
+          h('div', { class: 'n4' }, {
+            windows: 'Die Datei liegt meist unter Program Files und braucht zum Speichern Administratorrechte.',
+            linux: 'Bei Steam liegt der Installationsordner unter steamapps/common/rocketleague in der Steam-Bibliothek, meist ~/.local/share/Steam.',
+            darwin: 'Der Installationsordner liegt in der Flasche von CrossOver oder Whisky unter drive_c.',
+          }[sys.os] || '')),
+      sys.save_key ? h('div', { class: 'ctl' }, keyCapture(settings.mark_key, code => save({ mark_key: code }), true), ...testKeyButton(true)) : saveKeyMissing(sys),
+      sys.save_key ? h('span', { class: 'sm n5' }, 'Kurz nach dem Anstoß drückt das Tool diese Taste einmal. Standard ist die Rücktaste.') : null,
+    ], () => go(3)],
+    () => ['Wohin sollen neue Uploads?', [
+      h('div', { class: 'ctl', style: { gap: 'var(--space-4)', fontSize: '13px' } }, h('span', { class: 'grow' }, 'Sichtbarkeit'),
+        seg(Object.entries(visibilityNames), settings.visibility, v => save({ visibility: v }))),
+      info.groups.length || !info.syncing ? null : h('div', { class: 'sm n5' }, 'Deine Ordner werden gerade von ballchasing geladen …'),
+      h('div', null, rules.map(r => h('div', { class: 'map-row' + (r.on ? '' : ' off') },
+        h('input', { type: 'checkbox', checked: r.on, 'aria-label': 'Regel verwenden', onchange: e => { r.on = e.target.checked; e.target.parentNode.classList.toggle('off', !r.on); } }),
+        h('span', { class: 'ell' }, r.playlists.map(id => plName(id, playlists.find(p => p.id === id)?.name)).join(', ')), ico('arrow-right'),
+        h('select', { class: 'input', 'aria-label': 'Zielordner', onchange: e => { r.target_id = e.target.value; } },
+          h('option', { value: '' }, r.target_name + ' (neu)'), folderOptions(info.groups, r.target_id))))),
+      h('span', { class: 'sm n5' }, 'Ohne Haken landet die Playlist im Eingang. Neue Ordner werden beim ersten Spiel angelegt.'),
+    ], async () => {
+      const body = rules.filter(r => r.on).map(r => ({ enabled: true, playlists: r.playlists, target_id: r.target_id || '',
+        target_name: r.target_id ? groupPath(info.groups, r.target_id) : r.target_name.trim() })).filter(r => r.target_id || r.target_name);
+      if (await run(() => api('/api/setup/rules', { method: 'POST', body: { rules: body } }))) go(4);
+    }],
+    () => ['Sollen ältere Replays hochgeladen werden?', [
+      [['none', 'Keine', 'Nur neue Spiele ab jetzt'], ['30', 'Die letzten 30 Tage', 'Wird im Hintergrund hochgeladen', info.old.last30],
+        ['all', 'Alle', 'Kann das 24-h-Kontingent übersteigen, geht dann am nächsten Tag weiter', info.old.all]].map(([v, label, hint, n]) =>
+        h('label', { class: 'radio-card' + (backfill === v ? ' on' : '') },
+          h('input', { type: 'radio', name: 'old', checked: backfill === v, onchange: () => { backfill = v; render(); } }), h('span', { class: 'dot' }),
+          h('span', null, label, h('span', { class: 'hint', style: { display: 'block' } }, hint)),
+          h('span', { class: 'n4 num', style: { fontSize: '13px' } }, n === undefined ? '' : fmt.num(n)))),
+      h('span', { class: 'sm n5' }, 'Diese lagen schon vor dem ersten Start im Ordner. Was bereits auf ballchasing ist, wird erkannt.'),
+    ], async () => {
+      if (backfill !== 'none') await run(() => api('/api/setup/backfill', { method: 'POST', body: { mode: backfill } }));
+      await finish();
+      flash('Einrichtung abgeschlossen');
+    }],
+  ];
+  const next = () => steps[step]()[2]();
+
+  function render() {
+    const [question, body] = steps[step]();
+    fill(box,
+      h('div', { class: 'progress' }, stepNames.map((_, i) => h('span', { class: i <= step ? 'on' : '' }))),
+      h('div', { class: 'wz-info' }, h('span', { class: 'grow' }, `Schritt ${step + 1} von 5, ${stepNames[step]}`), h('button', { class: 'link', onclick: finish }, 'Später einrichten')),
+      h('h3', null, question),
+      h('div', { class: 'stack' }, body),
+      h('div', { class: 'wz-nav' },
+        step ? h('button', { class: 'btn btn-ghost big n3', onclick: () => go(step - 1) }, 'Zurück') : null, h('span', { class: 'grow' }),
+        h('button', { class: 'btn btn-primary big', onclick: next }, step === 4 ? 'Fertig' : 'Weiter', h('kbd', null, 'Enter'))));
+    if (step === 0 && info.account.status === 'ok') showIDs();
   }
 
-  function stepKey() {
-    const st = ctx.state;
-    return [
-      h('h2', null, 'Spiel und Speichern-Taste'),
-      st.stats_api ? h('div', { class: 'banner info' }, 'Rocket League ist verbunden.') : h('div', { class: 'banner warn stack', style: { display: 'block' } },
-        h('div', null, h('strong', null, 'Rocket League ist nicht verbunden.'), ' Läuft das Spiel, ist die Stats API wahrscheinlich aus.'),
-        h('div', null, `Spiel beenden, im Installationsordner ${sys.windows ? 'TAGame\\Config\\TAStatsAPI.ini' : 'TAGame/Config/TAStatsAPI.ini'} öffnen und eintragen:`),
-        h('pre', { style: { margin: '6px 0', padding: '8px 10px', background: 'var(--bg)', borderRadius: '8px' } }, '[TAGame.MatchStatsExporter_TA]\nPacketSendRate=1\nPort=49123'),
-        h('div', { class: 'muted' }, {
-          windows: 'Die Datei liegt meist unter Program Files und braucht zum Speichern Administratorrechte.',
-          linux: 'Bei Steam liegt der Installationsordner unter steamapps/common/rocketleague in der Steam-Bibliothek, meist ~/.local/share/Steam.',
-          darwin: 'Der Installationsordner liegt in der Flasche von CrossOver oder Whisky unter drive_c.',
-        }[sys.os] || '')),
-      sys.save_key ? [
-        h('p', { class: 'muted' }, 'Kurz nach dem Anstoß drückt das Tool einmal die Taste, mit der das Spiel das Replay am Ende speichert (Standard: Rücktaste). Hast du sie im Spiel geändert, wähle hier dieselbe.'),
-        h('div', { class: 'row' }, keyCapture(settings.mark_key, code => run(() => api('/api/settings', { method: 'PUT', body: { mark_key: code } }), 'Gespeichert'))),
-        h('div', { style: { marginTop: '10px' } }, testKeyButton()),
-      ] : h('div', { style: { marginTop: '10px' } }, saveKeyMissing(sys)),
-      nav(() => go(3)),
-    ];
-  }
-
-  async function stepRules() {
-    info = await api('/api/setup');
-    settings = await api('/api/settings');
-    const groups = info.groups;
-    const short = {
-      'ranked-duels': 'Ranked 1s', 'ranked-doubles': 'Ranked 2s', 'ranked-standard': 'Ranked 3s', 'ranked-solo-standard': 'Ranked Solo 3s',
-      'unranked-duels': 'Casual 1s', 'unranked-doubles': 'Casual 2s', 'unranked-standard': 'Casual 3s', 'unranked-chaos': 'Casual 4s',
-    };
-    const label = p => short[p] || p.replace('ranked-', 'Ranked ').replace(/^./, c => c.toUpperCase());
-    const rows = rules.map(r => {
-      const name = h('input', { type: 'text', value: r.target_name, hidden: !!r.target_id, 'aria-label': 'Name des neuen Ordners', style: { flex: '1' },
-        oninput: e => { r.target_name = e.target.value; } });
-      const folder = h('select', { 'aria-label': 'Zielordner', style: { maxWidth: '50%' },
-        onchange: e => { r.target_id = e.target.value; name.hidden = !!r.target_id; } },
-        folderOptions(groups, r.target_id || '', [['', 'Neuer Ordner:']]));
-      return h('div', { class: 'item', style: { gridTemplateColumns: 'auto 1fr 1fr' } },
-        h('input', { type: 'checkbox', checked: r.on, 'aria-label': 'Regel verwenden', onchange: e => { r.on = e.target.checked; } }),
-        h('span', null, r.playlists.map(label).join(', ')),
-        h('div', { class: 'row nowrap' }, folder, name));
-    });
-    return [
-      h('h2', null, 'Upload und Ordner'),
-      h('div', { class: 'setting' }, h('div', null, 'Sichtbarkeit neuer Uploads'),
-        h('select', { onchange: e => run(() => api('/api/settings', { method: 'PUT', body: { visibility: e.target.value } })) },
-          Object.entries(visibilityNames).map(([v, label]) => h('option', { value: v, selected: settings.visibility === v }, label)))),
-      h('div', { class: 'setting' }, h('div', null, h('div', null, 'Replays nach dem Upload löschen'), h('div', { class: 'hint' }, 'In den Papierkorb, sobald ballchasing sie verarbeitet hat. Spart Platz, zum Anschauen lassen sie sich wieder ins Spiel laden.')),
-        sw(settings.delete_after_upload, v => run(() => api('/api/settings', { method: 'PUT', body: { delete_after_upload: v } })))),
-      h('h3', { style: { marginTop: '16px' } }, 'Regeln: wohin welche Playlist kommt'),
-      h('p', { class: 'muted' }, 'Wähle für jede Playlist einen bestehenden Ordner oder lass einen neuen anlegen (passiert beim ersten Spiel). Ohne Haken landet die Playlist im Eingang.'),
-      groups.length ? null : h('div', { class: 'faint' }, info.syncing ? 'Deine Ordner werden gerade von ballchasing geladen …' : ''),
-      h('div', { class: 'list' }, rows),
-      nav(async () => {
-        const body = rules.filter(r => r.on).map(r => ({ enabled: true, playlists: r.playlists, target_id: r.target_id || '', target_name: r.target_id ? groupPath(groups, r.target_id) : r.target_name.trim() }))
-          .filter(r => r.target_id || r.target_name);
-        if (await run(() => api('/api/setup/rules', { method: 'POST', body: { rules: body } }), `${body.length} Regeln angelegt`)) go(4);
-      }),
-    ];
-  }
-
-  async function stepOld() {
-    info = await api('/api/setup');
-    const opt = (v, label, n) => h('label', { class: 'check', style: { display: 'flex', padding: '8px 0' } },
-      h('input', { type: 'radio', name: 'alt', checked: backfill === v, onchange: () => { backfill = v; } }), h('span', null, label, n !== undefined ? h('span', { class: 'muted' }, ` (${n} Replays)`) : null));
-    return [
-      h('h2', null, 'Alte Replays nachladen'),
-      h('p', { class: 'muted' }, 'Replays, die schon vor dem ersten Start im Ordner lagen, wurden nur registriert. Sollen sie jetzt hochgeladen werden? Was schon auf ballchasing ist, erkennt ballchasing selbst.'),
-      opt('none', 'Keine'), opt('30', 'Die letzten 30 Tage', info.old.last30), opt('all', 'Alle', info.old.all),
-      nav(async () => {
-        if (backfill !== 'none') await run(() => api('/api/setup/backfill', { method: 'POST', body: { mode: backfill } }), r => `${r.queued} Replays werden hochgeladen`);
-        finish();
-      }, 'Fertig'),
-    ];
-  }
-
-  async function render() {
-    const builders = [stepAccount, stepFolders, stepKey, stepRules, stepOld];
-    const body = await builders[step]();
-    fill(root, 
-      h('div', { class: 'steps' }, stepNames.map((n, i) => h('span', { class: i === step ? 'active' : i < step ? 'done' : '' }, `${i + 1}. ${n}`))),
-      h('div', { class: 'card', style: { maxWidth: '820px' } }, body));
-  }
-
-  await render();
+  const onKey = e => {
+    if (e.key === 'Enter' && !e.target.closest('input, button, select, textarea, a') && !document.querySelector('.backdrop, .menu')) { e.preventDefault(); next(); }
+  };
+  document.addEventListener('keydown', onKey);
+  render();
   ctx.on('ui:state', debounce(() => { if (step === 2) render(); }, 500));
-  ctx.on('groups', debounce(async () => { if (step === 3) { info = await api('/api/setup'); render(); } }, 500));
-  return { destroy: () => off?.() };
+  ctx.on('state', debounce(() => { if (step === 0 && info.account.status === 'ok') showIDs(); }, 1500));
+  ctx.on('groups', debounce(() => { if (step === 3) go(3); }, 500));
+  return { destroy: () => document.removeEventListener('keydown', onKey) };
 }

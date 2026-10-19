@@ -1,5 +1,5 @@
 // Interface core: routing, navigation, status bar and live updates.
-import { api, h, on, emit, debounce, eventsURL, uploadFiles, run, system } from './lib.js';
+import { api, h, ico, fill, on, emit, debounce, eventsURL, uploadFiles, run, system, uploadQuota } from './lib.js';
 import * as overview from './views/overview.js';
 import * as history from './views/history.js';
 import * as detail from './views/detail.js';
@@ -15,7 +15,7 @@ const views = {
   eingang: inbox, regeln: rules, einstellungen: settings, einrichtung: setup,
 };
 
-export const state = { current: null };
+const state = {};
 let mounted = null;
 let cleanup = [];
 
@@ -25,44 +25,44 @@ async function refreshState() {
   } catch {
     return;
   }
-  renderStatus();
-  renderBadges();
+  renderFoot();
+  renderNav();
   emit('ui:state');
 }
 const refreshStateSoon = debounce(refreshState, 200);
 
-function badge(name, n) {
-  const el = document.querySelector(`[data-badge="${name}"]`);
-  if (!el) return;
-  el.hidden = !n;
-  if (name !== 'setup') el.textContent = n > 99 ? '99+' : n;
+function renderNav() {
+  const failed = state.queue?.failed || 0;
+  const dot = (name, show, route, title) => {
+    document.querySelector(`[data-dot="${name}"]`).hidden = !show;
+    const a = document.querySelector(`[data-route="${route}"]`);
+    a.title = title;
+    a.setAttribute('aria-label', title);
+  };
+  dot('failed', failed, 'uebersicht', failed ? `Übersicht, ${failed} Fehler` : 'Übersicht');
+  dot('inbox', state.inbox, 'eingang', state.inbox ? `Eingang, ${state.inbox} unsortiert` : 'Eingang');
+  const setupNeeded = ['none', 'invalid'].includes(state.account?.status);
+  dot('setup', setupNeeded, 'einstellungen', setupNeeded ? 'Einstellungen, ballchasing nicht verbunden' : 'Einstellungen');
 }
 
-function renderBadges() {
-  badge('failed', state.queue?.failed || 0);
-  badge('inbox', state.inbox || 0);
-  badge('rules', state.rule_tips || 0);
-  badge('setup', state.account?.status === 'none' ? 1 : 0);
-  document.getElementById('nav-foot').textContent = 'Version ' + (state.version || '');
-}
-
-function renderStatus() {
+// renderFoot fills the status bar; lost says the program is not reachable.
+function renderFoot(lost) {
   const acc = state.account || {};
-  const chips = [];
-  const accText = { ok: acc.name, none: 'ballchasing nicht verbunden', invalid: 'Token ungültig', offline: 'ballchasing nicht erreichbar' }[acc.status];
-  chips.push(h('a', { class: 'chip ' + (acc.status === 'ok' ? 'ok' : 'bad'), href: acc.status === 'ok' ? 'https://ballchasing.com/' : '#/einstellungen',
-    target: acc.status === 'ok' ? '_blank' : null, rel: 'noopener', title: 'ballchasing' }, h('span', { class: 'dot' }), accText || '…'));
-  chips.push(h('span', { class: 'chip ' + (state.stats_api ? 'ok' : ''), title: 'Verbindung zur Stats API von Rocket League' },
-    h('span', { class: 'dot' }), state.in_match ? 'Im Match' : state.stats_api ? 'Rocket League verbunden' : 'Rocket League nicht verbunden'));
-  if (state.queue?.offline) chips.push(h('span', { class: 'chip warn' }, h('span', { class: 'dot' }), 'Uploads warten'));
-  if (state.syncing) chips.push(h('span', { class: 'chip' }, 'Abgleich läuft …'));
+  const quota = uploadQuota(acc);
   const paused = state.paused || {};
-  const all = paused.watch && paused.mark;
   const any = paused.watch || paused.mark;
-  chips.push(h('button', { class: 'chip ' + (any ? 'warn' : 'ok'), title: 'Pausieren oder fortsetzen' + (system(state).hotkeys ? ' (Strg+Alt+P)' : ''),
-    onclick: () => run(() => api('/api/pause', { method: 'POST', body: { watch: !any, mark: !any } })) },
-    h('span', { class: 'dot' }), all ? 'Pausiert' : paused.watch ? 'Uploads pausiert' : paused.mark ? 'Auto-Speichern pausiert' : 'Läuft'));
-  document.getElementById('status').replaceChildren(...chips);
+  const problem = lost ? 'Verbindung zum Programm getrennt'
+    : { none: 'ballchasing nicht verbunden', invalid: 'Token ungültig', offline: 'ballchasing nicht erreichbar' }[acc.status];
+  const v = state.version || '';
+  fill(document.getElementById('foot'),
+    quota ? h('span', { class: 'num' + (quota.full ? ' err' : '') }, `${quota.used} / ${quota.max} Uploads (24 h)`) : null,
+    problem ? h('a', { href: acc.status === 'none' ? '#/einrichtung' : '#/einstellungen' }, problem) : null,
+    state.queue?.offline ? h('span', null, 'Uploads warten') : null,
+    state.syncing ? h('span', null, 'Abgleich läuft …') : null,
+    h('button', { class: 'pause' + (any ? ' on' : ''), title: 'Pausieren oder fortsetzen', onclick: () => run(() => api('/api/pause', { method: 'POST', body: { watch: !any, mark: !any } })) },
+      ico(any ? 'play' : 'pause', 13),
+      h('span', null, (paused.watch && paused.mark ? 'Pausiert' : paused.watch ? 'Uploads pausiert' : paused.mark ? 'Auto-Speichern pausiert' : 'Läuft') + (system(state).hotkeys ? ', Strg+Alt+P' : ''))),
+    h('span', { class: 'n5' }, /^\d/.test(v) ? 'v' + v : v));
 }
 
 async function route() {
@@ -79,21 +79,19 @@ async function route() {
   mounted?.destroy?.();
   cleanup.forEach(f => f());
   cleanup = [];
-  for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.dataset.route === key);
+  const navKey = key === 'einrichtung' ? 'einstellungen' : key;
+  for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.dataset.route === navKey);
   const root = document.getElementById('view');
   root.replaceChildren();
-  root.scrollTop = 0;
-  document.getElementById('title').textContent = view.title || '';
   const ctx = {
     param: decodeURIComponent(rest.join('/')),
     state,
     on: (topic, fn) => cleanup.push(on(topic, fn)),
-    setTitle: t => { document.getElementById('title').textContent = t; },
   };
   try {
     mounted = await view.mount(root, ctx);
   } catch (e) {
-    root.replaceChildren(h('div', { class: 'banner bad' }, 'Fehler: ' + e.message));
+    root.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'note warn' }, 'Fehler: ' + e.message)));
   }
 }
 
@@ -104,7 +102,7 @@ function connect() {
     if (['state', 'queue', 'inbox', 'rules', 'settings', 'replays'].includes(e.data)) refreshStateSoon();
   };
   es.onerror = () => {
-    document.getElementById('status').replaceChildren(h('span', { class: 'chip bad' }, h('span', { class: 'dot' }), 'Verbindung zum Programm getrennt'));
+    renderFoot(true);
     es.close();
     setTimeout(() => { refreshState(); connect(); }, 3000);
   };
@@ -116,7 +114,7 @@ function setupOverlay() {
   close.hidden = false;
   close.onclick = () => window.closeOverlay();
   document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('.overlay-bg, .menu')) return;
+    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('.backdrop, .menu')) return;
     if (e.target.matches('input, textarea') && e.target.value) return; // first Esc clears the field
     window.closeOverlay();
   });

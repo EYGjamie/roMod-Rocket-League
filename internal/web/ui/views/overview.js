@@ -1,107 +1,81 @@
-import { api, h, fill, fmt, run, debounce, stateNames, sw, replayRow, uploadFiles, system, uploadQuota } from '../lib.js';
+import { api, h, ico, fill, fmt, run, debounce, seg, stateNames, uploadFiles, plName, resultBadge, scoreLine } from '../lib.js';
 
-export const title = 'Übersicht';
+const failed = f => f.state === 'failed' || f.state === 'rejected';
+let tab = 'all';
+
+function fileRow(f, paused) {
+  const bad = failed(f);
+  const tip = [stateNames[f.state] || f.state, f.error, f.attempts ? `Versuch ${f.attempts} von 3` : '',
+    f.state === 'retry' ? 'nächster ' + fmt.rel(f.next_try) : ''].filter(Boolean).join(', ');
+  return h('tr', null,
+    h('td', null, h('span', { class: 'res ' + (bad ? 'fail' : 'wait') }, bad ? '!' : '↑')),
+    h('td', { class: 'nowrap n5' }, 'wird ermittelt'),
+    h('td', null, h('div', { class: 'ell mono n3', style: { maxWidth: '180px' }, title: f.name }, f.name)),
+    h('td'), h('td'),
+    h('td', null, h('span', { class: 'state ' + (bad ? 'fail' : 'wait'), role: 'img', title: tip, 'aria-label': tip },
+      f.state === 'uploading' && !paused ? h('span', { class: 'ring' }) : null, ico(bad ? 'warning' : paused ? 'pause' : 'arrow-up'))),
+    h('td'),
+    h('td', { class: 'c nowrap n4 num' }, fmt.when(f.added, true)));
+}
+
+function doneRow(r) {
+  return h('tr', { class: 'link', onclick: () => { location.hash = '#/verlauf/' + r.id; } },
+    h('td', null, resultBadge(r)),
+    h('td', { class: 'nowrap' }, scoreLine(r)),
+    h('td', null, h('div', { class: 'ell n3', style: { maxWidth: '180px' }, title: r.title }, r.title)),
+    h('td', { class: 'nowrap' }, plName(r.playlist_id, r.playlist)),
+    h('td', { class: 'nowrap n4' }, r.map),
+    h('td', null, h('span', { class: 'state', role: 'img', title: 'Hochgeladen', 'aria-label': 'Hochgeladen' }, ico('check'))),
+    h('td', { class: 'c' }, h('span', { class: 'tag tag-neutral', title: r.group || 'Eingang' }, r.group || 'Eingang')),
+    h('td', { class: 'c nowrap n4 num' }, fmt.when(r.created, true)));
+}
 
 export async function mount(root, ctx) {
-  const banners = h('div', { class: 'stack' });
-  const status = h('div', { class: 'card' });
-  const session = h('div', { class: 'card' });
-  const queue = h('div', { class: 'card' });
-  const recent = h('div', { class: 'card' });
   const picker = h('input', { type: 'file', accept: '.replay', multiple: true, hidden: true, onchange: e => { uploadFiles(e.target.files); e.target.value = ''; } });
-  root.append(banners, h('div', { class: 'grid grid-2' }, status, session), queue, recent, picker);
+  const page = h('div', { class: 'page' });
+  root.append(page, picker);
+  let files = [];
+  let recent = [];
 
-  function renderStatus() {
-    const s = ctx.state;
-    const sys = system(s);
-    const acc = s.account || {};
-    const paused = s.paused || {};
-    const quota = uploadQuota(acc);
-    const toggle = (key, value) => run(() => api('/api/pause', { method: 'POST', body: { [key]: !value } }));
-    fill(banners, 
-      acc.status === 'none' ? h('div', { class: 'banner warn' }, 'Noch nicht mit ballchasing verbunden. ',
-        h('a', { href: '#/einrichtung' }, 'Jetzt einrichten')) : null,
-      acc.status === 'invalid' || s.queue?.bad_token ? h('div', { class: 'banner bad' }, 'Der ballchasing-Token ist ungültig, Uploads warten. ',
-        h('a', { href: '#/einstellungen' }, 'Neuen Token eintragen')) : null,
-      s.queue?.offline ? h('div', { class: 'banner warn' }, 'ballchasing ist gerade nicht erreichbar. Uploads werden automatisch nachgeholt.') : null,
-      quota?.full ? h('div', { class: 'banner warn' }, `Das Upload-Kontingent von ballchasing für 24 Stunden ist aufgebraucht (${quota.text}).`) : null);
-    fill(status, 
-      h('div', { class: 'card-head' }, h('h2', null, 'Status')),
-      h('div', { class: 'stack' },
-        h('div', { class: 'row' }, h('span', { class: 'grow' }, 'ballchasing'),
-          h('span', { class: acc.status === 'ok' ? '' : 'muted' }, acc.status === 'ok' ? 'angemeldet als ' + acc.name : { none: 'nicht verbunden', invalid: 'Token ungültig', offline: 'nicht erreichbar' }[acc.status] || '…')),
-        quota ? h('div', { class: 'row' }, h('span', { class: 'grow' }, 'Uploads in 24 Stunden'),
-          h('span', { class: 'num' + (quota.full ? '' : ' muted') }, quota.text)) : null,
-        h('div', { class: 'row' }, h('span', { class: 'grow' }, 'Rocket League'),
-          h('span', { class: s.stats_api ? '' : 'muted' }, s.in_match ? 'im Match' : s.stats_api ? 'verbunden' : 'nicht verbunden')),
-        h('hr', { class: 'sep' }),
-        h('div', { class: 'row' }, h('div', { class: 'grow' }, 'Ordner überwachen und hochladen'), sw(!paused.watch, () => toggle('watch', paused.watch))),
-        sys.save_key ? h('div', { class: 'row' }, h('div', { class: 'grow' }, 'Replays automatisch speichern'), sw(!paused.mark, () => toggle('mark', paused.mark))) : null,
-        sys.hotkeys ? h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Strg+Alt+P pausiert beides zusammen.') : null),
-      h('div', { class: 'row', style: { marginTop: '14px' } },
-        h('button', { onclick: () => picker.click() }, 'Replays hochladen …'),
-        h('button', { onclick: () => run(() => api('/api/open-folder', { method: 'POST' })) }, 'Replay-Ordner öffnen')));
-  }
-
-  function renderSession(s) {
-    if (!s) {
-      fill(session, h('div', { class: 'card-head' }, h('h2', null, 'Session')), h('div', { class: 'empty' }, 'Noch keine Spiele mit dir.'));
-      return;
-    }
-    const decided = s.wins + s.losses;
-    fill(session, 
-      h('div', { class: 'card-head' }, h('h2', null, s.active ? 'Aktuelle Session' : 'Letzte Session'),
-        h('span', { class: 'muted' }, fmt.day(s.start) + ', ' + fmt.clock(s.start) + '–' + fmt.clock(s.end))),
-      h('div', { class: 'grid grid-3' },
-        h('div', null, h('div', { class: 'muted' }, 'Spiele'), h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 700 } }, s.games)),
-        h('div', null, h('div', { class: 'muted' }, 'Bilanz'), h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 700 } }, `${s.wins}–${s.losses}`)),
-        h('div', null, h('div', { class: 'muted' }, 'Siegquote'), h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 700 } }, fmt.pct(s.wins, decided)))),
-      h('div', { style: { marginTop: '12px' } }, h('div', { class: 'muted', style: { marginBottom: '6px' } }, 'Verlauf' + (s.streak > 1 ? ` · längste Siegesfolge ${s.streak}` : '')),
-        h('div', { class: 'streak', 'aria-label': s.results.map(r => r === 'win' ? 'Sieg' : r === 'loss' ? 'Niederlage' : 'offen').join(', ') },
-          s.results.map(r => h('i', { class: r, title: r === 'win' ? 'Sieg' : r === 'loss' ? 'Niederlage' : 'ohne Ergebnis' })))));
-  }
-
-  function renderQueue(q) {
-    const active = q.items.filter(f => !['failed', 'rejected'].includes(f.state));
-    const failed = q.items.filter(f => ['failed', 'rejected'].includes(f.state));
-    const retry = name => run(() => api('/api/queue/retry', { method: 'POST', body: { name } }), 'Wird erneut versucht');
-    const line = f => h('div', { class: 'item file' },
-      h('span', { class: 'res ' + (['failed', 'rejected'].includes(f.state) ? 'loss' : 'none') }, ['failed', 'rejected'].includes(f.state) ? '!' : '↑'),
-      h('div', { class: 'grow' }, h('div', { class: 'ellipsis' }, f.name),
-        h('div', { class: 'faint', style: { fontSize: '12px' } },
-          stateNames[f.state] || f.state,
-          f.state === 'retry' || (f.state === 'queued' && f.error) ? ' · ' + fmt.rel(f.next_try) : '',
-          f.error ? ' · ' + f.error : '',
-          f.attempts ? ` · Versuch ${f.attempts} von 3` : '')),
-      h('div', { class: 'when' }, fmt.date(f.added)),
-      ['failed', 'rejected', 'retry'].includes(f.state) ? h('button', { class: 'small', onclick: () => retry(f.name) }, 'Jetzt erneut') : h('span'));
-    fill(queue, 
-      h('div', { class: 'card-head' }, h('h2', null, 'Warteschlange'),
-        failed.length ? h('button', { class: 'small', onclick: () => run(() => api('/api/queue/retry-all', { method: 'POST' }), r => `${r.queued} Uploads neu eingereiht`) }, 'Alle fehlgeschlagenen erneut senden') : null),
-      active.length + failed.length ? h('div', { class: 'list' }, [...failed, ...active].slice(0, 30).map(line))
-        : h('div', { class: 'empty' }, 'Keine offenen oder fehlgeschlagenen Uploads.'));
-  }
-
-  function renderRecent(list) {
-    fill(recent, 
-      h('div', { class: 'card-head' }, h('h2', null, 'Letzte Uploads'), h('a', { href: '#/verlauf' }, 'Ganzer Verlauf')),
-      list.length ? h('div', { class: 'list' }, list.map(r => replayRow(r, { changed: load }))) : h('div', { class: 'empty' }, 'Noch nichts hochgeladen.'));
+  function render() {
+    const paused = ctx.state.paused || {};
+    const any = paused.watch || paused.mark;
+    const rows = [...files.map(f => ({ kind: failed(f) ? 'err' : 'wait', el: () => fileRow(f, paused.watch) })),
+      ...recent.map(r => ({ kind: 'done', el: () => doneRow(r) }))];
+    const shown = rows.filter(x => tab === 'all' || x.kind === tab);
+    fill(page,
+      h('div', { class: 'head' }, h('h1', null, 'Übersicht'),
+        h('span', { class: 'end' }, seg([[false, 'Läuft'], [true, 'Pausiert']], !!any,
+          v => run(() => api('/api/pause', { method: 'POST', body: { watch: v, mark: v } }))))),
+      h('div', { class: 'tabs' },
+        [['all', 'Alle'], ['wait', 'Wartet'], ['err', 'Fehler'], ['done', 'Hochgeladen']].map(([k, label]) =>
+          h('button', { class: tab === k ? 'on' : '', 'aria-pressed': String(tab === k), onclick: () => { tab = k; render(); } },
+            label, h('span', { class: 'count' }, rows.filter(x => k === 'all' || x.kind === k).length))),
+        h('span', { class: 'end actions' },
+          h('button', { class: 'btn btn-ghost', disabled: !files.some(failed),
+            onclick: () => run(() => api('/api/queue/retry-all', { method: 'POST' }), r => `${r.queued} Uploads neu eingereiht`) },
+          ico('arrow-clockwise'), 'Fehlgeschlagene erneut'),
+          h('button', { class: 'btn btn-secondary', onclick: () => picker.click() }, ico('upload-simple'), 'Hochladen'))),
+      h('table', { class: 'table' },
+        h('thead', null, h('tr', null, h('th', { style: { width: '28px' } }), ['Spiel', 'Replay Name', 'Playlist', 'Map'].map(t => h('th', null, t)),
+          ['Status', 'Ordner', 'Zeit'].map(t => h('th', { class: 'c' }, t)))),
+        h('tbody', null, shown.map(x => x.el()))),
+      shown.length ? null : h('div', { class: 'empty' }, 'Nichts in dieser Ansicht.'));
   }
 
   async function load() {
     const [q, o] = await Promise.all([api('/api/queue'), api('/api/overview')]);
-    renderQueue(q);
-    renderRecent(o.recent || []);
-    renderSession(o.session);
+    files = q.items;
+    recent = o.recent || [];
+    render();
   }
 
-  renderStatus();
   await load();
   const soon = debounce(load, 300);
-  ctx.on('ui:state', renderStatus);
+  ctx.on('ui:state', render);
   ctx.on('queue', soon);
   ctx.on('replays', soon);
   ctx.on('groups', soon);
-  const tick = setInterval(soon, 15000); // countdowns
+  const tick = setInterval(soon, 15000); // retry countdowns
   return { refresh: load, destroy: () => clearInterval(tick) };
 }

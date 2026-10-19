@@ -1,132 +1,132 @@
-import { api, h, fill, run, debounce, sw, modal, confirmDialog, pickFolder, loadGroups, groupPath } from '../lib.js';
+import { api, h, ico, fill, run, flash, debounce, seg, sw, promptDialog, loadGroups, groupPath, folderOptions, plName } from '../lib.js';
 
-export const title = 'Regeln';
-
+const extra = ['hoops', 'ranked-hoops', 'rumble', 'ranked-rumble', 'dropshot', 'ranked-dropshot', 'snowday', 'ranked-snowday', 'heatseeker', 'dropshot-rumble', 'rocketlabs'];
 function playlistGroups(playlists) {
-  const extra = ['hoops', 'ranked-hoops', 'rumble', 'ranked-rumble', 'dropshot', 'ranked-dropshot', 'snowday', 'ranked-snowday', 'heatseeker', 'dropshot-rumble', 'rocketlabs'];
   return [
     ['Ranked', playlists.filter(p => p.id.startsWith('ranked-') && !extra.includes(p.id))],
     ['Casual', playlists.filter(p => p.id.startsWith('unranked-'))],
-    ['Extra-Modi', playlists.filter(p => extra.includes(p.id))],
+    ['Extra', playlists.filter(p => extra.includes(p.id))],
     ['Sonstige', playlists.filter(p => ['tournament', 'private', 'season', 'offline'].includes(p.id))],
   ];
 }
-
-// editRule opens the rule editor; resolves to the saved rule or null.
-async function editRule(rule, playlists, players) {
-  const { groups } = await loadGroups();
-  const r = { enabled: true, playlists: [], players: [], all_players: false, target_id: '', target_name: '', ...rule };
-  let mode = r.target_id ? 'existing' : r.target_name ? 'new' : 'existing';
-  return modal(rule.id ? 'Regel bearbeiten' : 'Neue Regel', close => {
-    const targetLabel = h('span', { class: 'muted' }, r.target_id ? groupPath(groups, r.target_id) || 'Ordner nicht gefunden' : 'kein Ordner gewählt');
-    const nameInput = h('input', { type: 'text', value: r.target_name, placeholder: 'z. B. 2s Ranked', style: { width: '100%' }, oninput: e => { r.target_name = e.target.value; } });
-    const err = h('div', { class: 'banner bad', hidden: true });
-    const toggle = (list, v, on) => { const i = list.indexOf(v); if (on && i < 0) list.push(v); if (!on && i >= 0) list.splice(i, 1); };
-    const existingBox = h('div', { class: 'row' }, h('button', { onclick: async () => {
-      const f = await pickFolder('Zielordner wählen', { inbox: false, ok: 'Auswählen' });
-      if (f) { r.target_id = f.id; targetLabel.textContent = f.name; }
-    } }, 'Ordner wählen …'), targetLabel);
-    const newBox = h('div', null, nameInput, h('div', { class: 'faint', style: { fontSize: '12px', marginTop: '4px' } }, 'Wird beim ersten passenden Replay auf oberster Ebene angelegt.'));
-    const showMode = () => { existingBox.hidden = mode !== 'existing'; newBox.hidden = mode !== 'new'; };
-    showMode();
-    const save = async () => {
-      const body = { ...r, target_id: mode === 'existing' ? r.target_id : '', target_name: mode === 'new' ? r.target_name.trim() : (r.target_name || '') };
-      try {
-        const saved = await api('/api/rules' + (r.id ? '/' + r.id : ''), { method: r.id ? 'PUT' : 'POST', body });
-        close(saved);
-      } catch (e) {
-        err.hidden = false;
-        err.textContent = e.message;
-      }
-    };
-    return [
-      h('div', { class: 'modal-body stack' },
-        err,
-        h('h3', null, 'Playlists'),
-        h('div', { class: 'faint', style: { fontSize: '12px' } }, 'Keine Auswahl heißt: jede Playlist.'),
-        playlistGroups(playlists).map(([label, list]) => h('div', null,
-          h('div', { class: 'muted', style: { fontSize: '12px', margin: '6px 0 4px' } }, label),
-          h('div', { class: 'row', style: { gap: '6px 16px' } }, list.map(p => h('label', { class: 'check' },
-            h('input', { type: 'checkbox', checked: r.playlists.includes(p.id), onchange: e => toggle(r.playlists, p.id, e.target.checked) }), p.name))))),
-        h('hr', { class: 'sep' }),
-        h('h3', null, 'Mitspieler'),
-        players.length ? h('div', { class: 'picker', style: { maxHeight: '160px' } }, players.map(p => h('label', { class: 'check', style: { display: 'flex', padding: '3px 6px' } },
-          h('input', { type: 'checkbox', checked: r.players.includes(p.pid), onchange: e => toggle(r.players, p.pid, e.target.checked) }),
-          h('span', { class: 'grow' }, p.name), h('span', { class: 'faint' }, p.games + ' Spiele'))))
-          : h('div', { class: 'muted' }, 'Noch keine Mitspieler bekannt.'),
-        sw(r.all_players, v => { r.all_players = v; }, 'Alle gewählten Mitspieler müssen dabei sein (sonst reicht einer)'),
-        h('hr', { class: 'sep' }),
-        h('h3', null, 'Zielordner'),
-        h('div', { class: 'row' },
-          h('label', { class: 'check' }, h('input', { type: 'radio', name: 'mode', checked: mode === 'existing', onchange: () => { mode = 'existing'; showMode(); } }), 'Bestehender Ordner'),
-          h('label', { class: 'check' }, h('input', { type: 'radio', name: 'mode', checked: mode === 'new', onchange: () => { mode = 'new'; showMode(); } }), 'Neuer Ordner')),
-        existingBox, newBox,
-        h('hr', { class: 'sep' }),
-        sw(r.enabled, v => { r.enabled = v; }, 'Regel ist aktiv')),
-      h('div', { class: 'modal-foot' }, h('button', { onclick: () => close(null) }, 'Abbrechen'), h('button', { class: 'primary', onclick: save }, 'Speichern')),
-    ];
-  }, { wide: true });
-}
+// chipName drops the group from the name: "Ranked 2s" is "2s" under Ranked.
+const chipName = p => plName(p.id, p.name).replace(/^(Ranked|Casual) (?=\d)/, '');
 
 export async function mount(root, ctx) {
+  const page = h('div', { class: 'page', style: { gap: '0' } });
+  root.append(page);
   let data = null;
+  let groups = [];
+  let editing = null; // index of the rule being edited, or 'new'
+  let draft = null;
   let dragID = null;
-  const tipsBox = h('div');
-  const listBox = h('div', { class: 'list' });
-  root.append(tipsBox,
-    h('div', { class: 'row' }, h('div', { class: 'grow muted' }, 'Die erste passende Regel bestimmt den Ordner. Regeln mit Mitspielern gehören deshalb vor die allgemeinen Playlist-Regeln.'),
-      h('button', { class: 'primary', onclick: async () => { if (await editRule({}, data.playlists, data.players)) load(); } }, '+ Neue Regel')),
-    listBox);
+
+  const blank = () => ({ enabled: true, playlists: [], players: [], all_players: false, target_id: '', target_name: '' });
+  const edit = i => {
+    const r = data.rules[i];
+    editing = i;
+    draft = { ...r, playlists: [...(r.playlists || [])], players: [...(r.players || [])] };
+    render();
+  };
+  const closeEditor = () => { editing = null; render(); };
+
+  async function save() {
+    try {
+      await api('/api/rules' + (draft.id ? '/' + draft.id : ''), { method: draft.id ? 'PUT' : 'POST', body: draft });
+    } catch (e) {
+      return flash(e.message, 'err');
+    }
+    flash('Regel gespeichert');
+    editing = null;
+    load();
+  }
+
+  async function remove() {
+    if (draft.id && !await run(() => api('/api/rules/' + draft.id, { method: 'DELETE' }), 'Regel gelöscht, einsortierte Replays bleiben, wo sie sind')) return;
+    closeEditor();
+  }
 
   async function order(ids) {
     await run(() => api('/api/rules/order', { method: 'POST', body: { ids } }));
     load();
   }
 
-  function render() {
-    fill(tipsBox, data.tips.length ? h('div', { class: 'card stack' },
-      h('h3', null, 'Vorschläge aus deinem Einordnen'),
-      data.tips.map(t => h('div', { class: 'row' }, h('span', { class: 'grow' }, t.text),
-        h('button', { class: 'small primary', onclick: () => run(() => api('/api/rule-suggestions/accept', { method: 'POST', body: { key: t.key } }), 'Regel angelegt') }, 'Als Regel übernehmen'),
-        h('button', { class: 'small ghost', onclick: () => run(() => api('/api/rule-suggestions/ignore', { method: 'POST', body: { key: t.key } })) }, 'Ignorieren')))) : '');
-    const ids = data.rules.map(r => r.id);
-    fill(listBox, ...(data.rules.length ? data.rules.map((r, i) => {
-      const cond = [];
-      if (r.playlist_txt?.length) cond.push(r.playlist_txt.join(', '));
-      if (r.player_txt?.length) cond.push('mit ' + r.player_txt.join(r.all_players ? ' und ' : ' oder '));
-      const row = h('div', { class: 'item', draggable: 'true', style: { gridTemplateColumns: 'auto auto 1fr auto', opacity: r.enabled ? 1 : .55 },
-        ondragstart: e => { dragID = r.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(r.id)); },
-        ondragover: e => { if (dragID !== null) { e.preventDefault(); row.classList.add('selected'); } },
-        ondragleave: () => row.classList.remove('selected'),
-        ondrop: e => {
-          e.preventDefault();
-          row.classList.remove('selected');
-          if (dragID === null || dragID === r.id) return;
-          const next = ids.filter(id => id !== dragID);
-          next.splice(next.indexOf(r.id), 0, dragID);
-          dragID = null;
-          order(next);
+  function ruleRow(r, i) {
+    const el = h('div', { class: 'g-rule rule' + (r.enabled ? '' : ' off'), draggable: 'true', title: 'Klicken zum Bearbeiten, ziehen zum Umsortieren', onclick: () => edit(i),
+      ondragstart: e => { dragID = r.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(r.id)); },
+      ondragover: e => { if (dragID !== null) { e.preventDefault(); el.classList.add('drop'); } },
+      ondragleave: () => el.classList.remove('drop'),
+      ondrop: e => {
+        e.preventDefault();
+        el.classList.remove('drop');
+        if (dragID === null || dragID === r.id) return;
+        const ids = data.rules.map(x => x.id).filter(id => id !== dragID);
+        ids.splice(ids.indexOf(r.id), 0, dragID);
+        dragID = null;
+        order(ids);
+      } },
+      h('span', { class: 'n5' }, i + 1),
+      h('span', { class: 'ell' }, r.playlists?.length ? r.playlists.map((id, k) => plName(id, r.playlist_txt?.[k])).join(', ') : 'jede Playlist'),
+      h('span', { class: 'ell n4' }, (r.player_txt || []).join(r.all_players ? ' und ' : ' oder ')),
+      h('span', { class: 'ell' }, r.target || '(Ordner fehlt)', r.target_id ? null : h('span', { class: 'n5' }, ' (neu)')),
+      sw(r.enabled, v => run(() => api('/api/rules/' + r.id, { method: 'PUT', body: { ...r, enabled: v } })), 'Regel aktiv'));
+    return el;
+  }
+
+  function editor(n) {
+    const r = draft;
+    const name = pid => data.players.find(p => p.pid === pid)?.name || pid;
+    const free = data.players.filter(p => !r.players.includes(p.pid));
+    return h('div', { class: 'editor' },
+      h('div', { class: 'head tight' }, h('span', { class: 'n5' }, n), h('span', null, r.id ? 'Regel bearbeiten' : 'Neue Regel')),
+      h('div', { class: 'form' },
+        h('span', { class: 'lbl' }, 'Playlists'),
+        h('div', { class: 'stack' }, playlistGroups(data.playlists).map(([label, list]) => h('div', { class: 'chips' }, h('span', { class: 'lbl' }, label),
+          list.map(p => h('button', { class: 'chip', 'aria-pressed': String(r.playlists.includes(p.id)), title: p.name, onclick: () => {
+            r.playlists = r.playlists.includes(p.id) ? r.playlists.filter(x => x !== p.id) : [...r.playlists, p.id];
+            render();
+          } }, chipName(p)))))),
+        h('span', { class: 'lbl' }, 'Mitspieler'),
+        h('div', { class: 'mates' },
+          r.players.map(pid => h('button', { class: 'tag tag-accent', 'aria-label': name(pid) + ' entfernen', onclick: () => { r.players = r.players.filter(x => x !== pid); render(); } },
+            name(pid), ico('x', 11))),
+          free.length ? h('select', { 'aria-label': 'Mitspieler hinzufügen', onchange: e => { r.players = [...r.players, e.target.value]; render(); } },
+            h('option', { value: '' }, '+ Mitspieler'), free.map(p => h('option', { value: p.pid }, `${p.name} (${p.games} Spiele)`))) : null,
+          h('span', { class: 'end' }, seg([[false, 'einer reicht'], [true, 'alle']], !!r.all_players, v => { r.all_players = v; }, true))),
+        h('span', { class: 'lbl', style: { paddingTop: '6px' } }, 'Ordner'),
+        h('select', { class: 'input', style: { maxWidth: '320px' }, 'aria-label': 'Ordner', onchange: async e => {
+          if (e.target.value === '+') {
+            const n = await promptDialog('Neuer Ordner', 'Wird beim ersten passenden Replay auf oberster Ebene angelegt');
+            if (n) Object.assign(r, { target_id: '', target_name: n });
+            return render();
+          }
+          Object.assign(r, { target_id: e.target.value, target_name: groupPath(groups, e.target.value) });
         } },
-        h('span', { class: 'faint', style: { cursor: 'grab' }, title: 'Ziehen zum Umsortieren', 'aria-hidden': 'true' }, '⋮⋮'),
-        sw(r.enabled, v => run(() => api('/api/rules/' + r.id, { method: 'PUT', body: { ...r, enabled: v } })).then(load)),
-        h('div', { class: 'grow' }, h('div', null, cond.join(' · ') || '(ohne Bedingung)'),
-          h('div', { class: 'muted', style: { fontSize: '12.5px' } }, '→ ', r.target || '(Ordner fehlt)', r.target_id ? '' : h('span', { class: 'faint' }, ' · wird beim ersten Treffer angelegt'))),
-        h('div', { class: 'actions' },
-          h('button', { class: 'icon-btn', disabled: i === 0, 'aria-label': 'Nach oben', onclick: () => { const n = [...ids]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; order(n); } }, '↑'),
-          h('button', { class: 'icon-btn', disabled: i === ids.length - 1, 'aria-label': 'Nach unten', onclick: () => { const n = [...ids]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; order(n); } }, '↓'),
-          h('button', { class: 'icon-btn', 'aria-label': 'Bearbeiten', onclick: async () => { if (await editRule(r, data.playlists, data.players)) load(); } }, '✎'),
-          h('button', { class: 'icon-btn', 'aria-label': 'Löschen', onclick: async () => {
-            if (await confirmDialog('Regel löschen', 'Die Regel wird gelöscht. Bereits einsortierte Replays bleiben, wo sie sind.', 'Löschen', true)) {
-              await run(() => api('/api/rules/' + r.id, { method: 'DELETE' }), 'Regel gelöscht');
-              load();
-            }
-          } }, '🗑')));
-      return row;
-    }) : [h('div', { class: 'empty' }, 'Noch keine Regeln. Ohne Regel landet jedes Replay im Eingang.')]));
+          r.target_id ? null : h('option', { value: '', selected: true }, r.target_name ? r.target_name + ' (neu)' : 'Ordner wählen'),
+          folderOptions(groups, r.target_id), h('option', { value: '+' }, 'Neuer Ordner …'))),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn btn-ghost danger', onclick: remove }, ico('trash'), 'Löschen'), h('span', { class: 'grow' }),
+        h('button', { class: 'btn btn-secondary', onclick: closeEditor }, 'Schließen'),
+        h('button', { class: 'btn btn-primary', onclick: save }, 'Speichern')));
+  }
+
+  function render() {
+    fill(page,
+      h('div', { class: 'head tight', style: { marginBottom: 'var(--space-3)' } }, h('h1', null, 'Regeln'),
+        h('button', { class: 'btn btn-primary end', onclick: () => { editing = 'new'; draft = blank(); render(); } }, ico('plus'), 'Neue Regel')),
+      data.tips.map(t => h('div', { class: 'tip-row' }, ico('sparkle'), h('span', { class: 'grow' }, 'Vorschlag: ' + t.text),
+        h('button', { class: 'btn btn-ghost sm', onclick: () => run(() => api('/api/rule-suggestions/accept', { method: 'POST', body: { key: t.key } }), 'Regel angelegt') }, 'Übernehmen'),
+        h('button', { class: 'btn btn-ghost sm n4', onclick: () => run(() => api('/api/rule-suggestions/ignore', { method: 'POST', body: { key: t.key } })) }, 'Ignorieren'))),
+      h('div', { class: 'g-rule rule-h' }, ['#', 'Playlists', 'Mitspieler', 'Ordner', 'Aktiv'].map(t => h('span', null, t))),
+      data.rules.map((r, i) => editing === i ? editor(i + 1) : ruleRow(r, i)),
+      editing === 'new' ? editor(data.rules.length + 1) : null,
+      data.rules.length || editing === 'new' ? null : h('div', { class: 'empty' }, 'Noch keine Regeln. Ohne Regel landet jedes Replay im Eingang.'));
   }
 
   async function load() {
-    data = await api('/api/rules');
+    [data, { groups }] = await Promise.all([api('/api/rules'), loadGroups()]);
+    if (typeof editing === 'number' && !data.rules.some(r => r.id === draft.id)) editing = null;
+    else if (typeof editing === 'number') editing = data.rules.findIndex(r => r.id === draft.id);
     render();
   }
 

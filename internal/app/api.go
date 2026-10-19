@@ -604,7 +604,8 @@ func (a *App) apiGroups(w http.ResponseWriter, r *http.Request) {
 	if groups == nil {
 		groups = []store.Group{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"groups": groups, "unsorted": len(a.inboxReplays()), "syncing": a.Syncing()})
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups, "unsorted": len(a.inboxReplays()), "syncing": a.Syncing(),
+		"synced": a.store.Meta("groups_synced")})
 }
 
 func (a *App) apiCreateGroup(w http.ResponseWriter, r *http.Request) {

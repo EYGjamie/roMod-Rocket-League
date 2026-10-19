@@ -1,163 +1,220 @@
-import { api, h, fill, fmt, menu, replayActions, playerTable, resultBadge, scoreLine, visibilityNames } from '../lib.js';
+import { api, h, ico, fill, fmt, run, menu, seg, confirmDialog, pickFolder, moveTo, plName, scoreLine, visibilityNames } from '../lib.js';
 
-export const title = 'Replay';
+const tabs = ['Überblick', 'Kern', 'Boost', 'Bewegung', 'Position', 'Demos', 'Kamera & Auto'];
 
-const groups = [
-  ['core', 'Kern', {
-    score: 'Punkte', goals: 'Tore', assists: 'Vorlagen', saves: 'Paraden', shots: 'Schüsse', shooting_percentage: 'Schussquote',
-    goals_against: 'Gegentore', shots_against: 'Schüsse aufs eigene Tor', epic_saves: 'Glanzparaden', clears: 'Befreiungsschläge',
-    centers: 'Flanken', aerial_hits: 'Treffer in der Luft', first_touches: 'Erste Berührungen', flip_resets: 'Flip-Resets',
-    crossbar_hits: 'Lattentreffer', bicycle_hits: 'Fallrückzieher', juggle_hits: 'Jongliertreffer', mvp: 'MVP',
-  }],
-  ['boost', 'Boost', {
-    bpm: 'Boost pro Minute', bcpm: 'Gesammelt pro Minute', avg_amount: 'Ø Boost', amount_collected: 'Gesammelt',
-    amount_collected_big: '… von großen Pads', amount_collected_small: '… von kleinen Pads', amount_stolen: 'Gestohlen',
-    amount_stolen_big: '… große Pads', amount_stolen_small: '… kleine Pads', count_collected_big: 'Große Pads',
-    count_collected_small: 'Kleine Pads', count_stolen_big: 'Große Pads gestohlen', count_stolen_small: 'Kleine Pads gestohlen',
-    amount_overfill: 'Überfüllt', amount_overfill_stolen: 'Überfüllt (gestohlen)', amount_used_while_supersonic: 'Verbraucht bei Überschall',
-    time_zero_boost: 'Zeit ohne Boost', percent_zero_boost: 'Anteil ohne Boost', time_full_boost: 'Zeit mit vollem Boost',
-    percent_full_boost: 'Anteil mit vollem Boost', time_boost_0_25: 'Zeit mit 0–25 %', percent_boost_0_25: 'Anteil 0–25 %',
-    time_boost_25_50: 'Zeit mit 25–50 %', percent_boost_25_50: 'Anteil 25–50 %', time_boost_50_75: 'Zeit mit 50–75 %',
-    percent_boost_50_75: 'Anteil 50–75 %', time_boost_75_100: 'Zeit mit 75–100 %', percent_boost_75_100: 'Anteil 75–100 %',
-  }],
-  ['movement', 'Bewegung', {
-    avg_speed: 'Ø Geschwindigkeit', avg_speed_percentage: 'Ø Geschwindigkeit (vom Maximum)', total_distance: 'Strecke',
-    time_supersonic_speed: 'Zeit mit Überschall', percent_supersonic_speed: 'Anteil Überschall', time_boost_speed: 'Zeit mit Boost-Tempo',
-    percent_boost_speed: 'Anteil Boost-Tempo', time_slow_speed: 'Zeit langsam', percent_slow_speed: 'Anteil langsam',
-    time_ground: 'Zeit am Boden', percent_ground: 'Anteil am Boden', time_wall: 'Zeit an der Wand', percent_wall: 'Anteil an der Wand',
-    time_low_air: 'Zeit tief in der Luft', percent_low_air: 'Anteil tief in der Luft', time_high_air: 'Zeit hoch in der Luft',
-    percent_high_air: 'Anteil hoch in der Luft', time_powerslide: 'Zeit im Powerslide', count_powerslide: 'Powerslides',
-    avg_powerslide_duration: 'Ø Powerslide-Dauer',
-  }],
-  ['positioning', 'Position', {
-    avg_distance_to_ball: 'Ø Abstand zum Ball', avg_distance_to_ball_possession: '… bei eigenem Ballbesitz',
-    avg_distance_to_ball_no_possession: '… bei gegnerischem Ballbesitz', avg_distance_to_mates: 'Ø Abstand zu Mitspielern',
-    time_defensive_third: 'Zeit im eigenen Drittel', percent_defensive_third: 'Anteil eigenes Drittel',
-    time_neutral_third: 'Zeit im Mitteldrittel', percent_neutral_third: 'Anteil Mitteldrittel',
-    time_offensive_third: 'Zeit im gegnerischen Drittel', percent_offensive_third: 'Anteil gegnerisches Drittel',
-    time_defensive_half: 'Zeit in der eigenen Hälfte', percent_defensive_half: 'Anteil eigene Hälfte',
-    time_offensive_half: 'Zeit in der gegnerischen Hälfte', percent_offensive_half: 'Anteil gegnerische Hälfte',
-    time_behind_ball: 'Zeit hinter dem Ball', percent_behind_ball: 'Anteil hinter dem Ball',
-    time_infront_ball: 'Zeit vor dem Ball', percent_infront_ball: 'Anteil vor dem Ball',
-    time_most_back: 'Zeit als Hinterster', percent_most_back: 'Anteil als Hinterster',
-    time_most_forward: 'Zeit als Vorderster', percent_most_forward: 'Anteil als Vorderster',
-    time_closest_to_ball: 'Zeit am nächsten am Ball', percent_closest_to_ball: 'Anteil am nächsten am Ball',
-    time_farthest_from_ball: 'Zeit am weitesten vom Ball', percent_farthest_from_ball: 'Anteil am weitesten vom Ball',
-    goals_against_while_last_defender: 'Gegentore als letzter Mann',
-  }],
-  ['demo', 'Demos', {
-    inflicted: 'Demos verteilt', inflicted_in_defensive_half: '… in der eigenen Hälfte', inflicted_in_offensive_half: '… in der gegnerischen Hälfte',
-    taken: 'Demos kassiert', taken_in_defensive_half: '… in der eigenen Hälfte', taken_in_offensive_half: '… in der gegnerischen Hälfte',
-  }],
-];
+// compared statistics per tab: [label, key, kind, unit]. kind int (the
+// default), dec, pct or share: a part of the game, from percent_<key> or
+// time_<key>, shown with its time.
+const groups = {
+  1: ['core', [['Punkte', 'score'], ['Tore', 'goals'], ['Vorlagen', 'assists'], ['Paraden', 'saves'], ['Schüsse', 'shots'], ['Schussquote', 'shooting_percentage', 'pct']]],
+  2: ['boost', [['Boost pro Minute', 'bpm', 'int', '/min'], ['Gesammelt pro Minute', 'bcpm', 'int', '/min'], ['Ø Boost-Stand', 'avg_amount', 'pct'],
+    ['Gesammelt', 'amount_collected', 'int', 'Boost'], ['… von großen Pads', 'amount_collected_big', 'int', 'Boost'], ['… von kleinen Pads', 'amount_collected_small', 'int', 'Boost'],
+    ['Gestohlen', 'amount_stolen', 'int', 'Boost'], ['Große Pads', 'count_collected_big', 'int', '×'], ['Kleine Pads', 'count_collected_small', 'int', '×'],
+    ['Überfüllt', 'amount_overfill', 'int', 'Boost'], ['Verbraucht bei Überschall', 'amount_used_while_supersonic', 'int', 'Boost'],
+    ['Zeit ohne Boost', 'zero_boost', 'share'], ['Zeit mit vollem Boost', 'full_boost', 'share'], ['Zeit mit 0-25% Boost', 'boost_0_25', 'share'],
+    ['Zeit mit 25-50% Boost', 'boost_25_50', 'share'], ['Zeit mit 50-75% Boost', 'boost_50_75', 'share'], ['Zeit mit 75-100% Boost', 'boost_75_100', 'share']]],
+  3: ['movement', [['Ø Geschwindigkeit', 'avg_speed', 'dec', 'km/h'], ['Strecke', 'total_distance', 'dec', 'km'], ['Zeit mit Überschall', 'supersonic_speed', 'share'],
+    ['Zeit mit Boost-Tempo', 'boost_speed', 'share'], ['Zeit langsam', 'slow_speed', 'share'], ['Zeit am Boden', 'ground', 'share'], ['Zeit an der Wand', 'wall', 'share'],
+    ['Zeit tief in der Luft', 'low_air', 'share'], ['Zeit hoch in der Luft', 'high_air', 'share'], ['Powerslides', 'count_powerslide', 'int', '×'],
+    ['Ø Powerslide-Dauer', 'avg_powerslide_duration', 'dec', 's']]],
+  4: ['positioning', [['Ø Abstand zum Ball', 'avg_distance_to_ball', 'dec', 'm'], ['… bei eigenem Ballbesitz', 'avg_distance_to_ball_possession', 'dec', 'm'],
+    ['… bei gegnerischem Ballbesitz', 'avg_distance_to_ball_no_possession', 'dec', 'm'], ['Ø Abstand zu Mitspielern', 'avg_distance_to_mates', 'dec', 'm'],
+    ['Zeit im eigenen Drittel', 'defensive_third', 'share'], ['Zeit im Mitteldrittel', 'neutral_third', 'share'], ['Zeit im gegnerischen Drittel', 'offensive_third', 'share'],
+    ['Zeit in der eigenen Hälfte', 'defensive_half', 'share'], ['Zeit in der gegnerischen Hälfte', 'offensive_half', 'share'], ['Zeit hinter dem Ball', 'behind_ball', 'share'],
+    ['Zeit vor dem Ball', 'infront_ball', 'share'], ['Zeit als Hinterster', 'most_back', 'share'], ['Zeit als Vorderster', 'most_forward', 'share'],
+    ['Zeit am nächsten am Ball', 'closest_to_ball', 'share'], ['Zeit am weitesten vom Ball', 'farthest_from_ball', 'share'],
+    ['Gegentore als letzter Mann', 'goals_against_while_last_defender']]],
+  5: ['demo', [['Demos verteilt', 'inflicted'], ['… in der gegnerischen Hälfte', 'inflicted_in_offensive_half'], ['… in der eigenen Hälfte', 'inflicted_in_defensive_half'],
+    ['Demos kassiert', 'taken'], ['… in der eigenen Hälfte', 'taken_in_defensive_half'], ['… in der gegnerischen Hälfte', 'taken_in_offensive_half']]],
+};
 
-const cameraLabels = { fov: 'Sichtfeld', height: 'Höhe', pitch: 'Neigung', distance: 'Abstand', stiffness: 'Steifheit', swivel_speed: 'Schwenkgeschwindigkeit', transition_speed: 'Übergangsgeschwindigkeit' };
+const refNames = { lobby: 'Lobby-Schnitt', mates: 'Mitspieler', opp: 'Gegner-Schnitt' };
+let tab = 0;
+let shownID = '';
+let ref = 'lobby';
+let deltaMode = 'rel';
 
-// value formats a statistic by its kind.
-function value(key, v) {
-  if (v === undefined || v === null) return '–';
-  if (typeof v === 'boolean') return v ? '✓' : '';
-  if (key.startsWith('time_') || key === 'avg_powerslide_duration') return key === 'avg_powerslide_duration' ? fmt.num(v) + ' s' : fmt.dur(v);
-  if (key.startsWith('percent_') || key.endsWith('_percentage')) return fmt.num(v) + ' %';
-  if (key === 'total_distance') return fmt.num(v / 100000) + ' km';
-  if (key === 'avg_speed') return fmt.num(v * 0.036) + ' km/h';
-  if (key.startsWith('avg_distance')) return fmt.num(v / 100) + ' m';
-  return fmt.num(v);
+const dec = (x, k = 1) => (Math.round(x * 10 ** k) / 10 ** k).toLocaleString('de-DE', { maximumFractionDigits: k });
+const mmss = s => { const t = Math.round(Math.abs(s)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+const fixed = (v, k) => typeof v === 'number' ? v.toLocaleString('de-DE', { minimumFractionDigits: k, maximumFractionDigits: k }) : '–';
+
+// stat reads one statistic of a player in display units.
+function stat(p, group, key, kind, dur) {
+  const s = p.stats?.[group] || {};
+  if (kind === 'share') return s['percent_' + key] ?? (typeof s['time_' + key] === 'number' && dur ? 100 * s['time_' + key] / dur : undefined);
+  const v = s[key];
+  if (typeof v !== 'number') return undefined;
+  if (key === 'avg_speed') return v * 0.036;
+  if (key === 'total_distance') return v / 100000;
+  if (key.startsWith('avg_distance')) return v / 100;
+  return v;
 }
 
-function isPercent(key) { return key.startsWith('percent_') || key.endsWith('_percentage'); }
-
-// statTable shows one group: rows are statistics, columns the players and
-// the team totals.
-function statTable(detail, group, labels, meIDs) {
-  const players = [];
-  for (const color of ['blue', 'orange']) for (const p of detail[color]?.players || []) players.push({ ...p, color });
-  const teams = ['blue', 'orange'].map(c => ({ color: c, stats: detail[c]?.stats?.[group] || {} })).filter(t => Object.keys(t.stats).length > 0);
-  const keys = Object.keys(labels).filter(k => players.some(p => p.stats?.[group]?.[k] !== undefined) || teams.some(t => t.stats[k] !== undefined));
-  for (const p of players) for (const k of Object.keys(p.stats?.[group] || {})) if (!keys.includes(k)) keys.push(k);
-  if (!keys.length) return h('div', { class: 'empty' }, 'Für dieses Replay liefert ballchasing hier nichts.');
-  const pid = p => p.id ? p.id.platform + ':' + p.id.id : '';
-  return h('div', { style: { overflowX: 'auto' } }, h('table', { class: 'stats' },
-    h('thead', null, h('tr', null, h('th', null, ''),
-      players.map(p => h('th', { class: meIDs.has(pid(p)) ? 'me' : '' }, h('span', { class: p.color === 'blue' ? 'b' : 'o' }, p.name))),
-      teams.map(t => h('th', null, t.color === 'blue' ? 'Team Blau' : 'Team Orange')))),
-    h('tbody', null, keys.map(k => h('tr', null,
-      h('td', null, labels[k] || k),
-      players.map(p => {
-        const v = p.stats?.[group]?.[k];
-        return h('td', { class: 'num', style: meIDs.has(pid(p)) ? { fontWeight: 600 } : null },
-          isPercent(k) && typeof v === 'number' ? h('div', { class: 'row nowrap', style: { justifyContent: 'flex-end' } },
-            h('div', { class: 'minibar', style: { width: '50px' } }, h('i', { style: { width: Math.min(100, v) + '%' } })), value(k, v)) : value(k, v));
-      }),
-      teams.map(t => h('td', { class: 'num muted' }, t.stats[k] !== undefined ? value(k, t.stats[k]) : '')))))));
+function show(x, kind, unit, dur) {
+  if (kind === 'share') return `${dec(x)}% (${mmss(x / 100 * dur)})`;
+  if (kind === 'pct') return dec(x) + '%';
+  return (kind === 'dec' ? dec(x) : dec(x, 0)) + (!unit ? '' : unit === '×' || unit === '/min' ? unit : ' ' + unit);
 }
 
-function cameraTable(detail) {
-  const players = ['blue', 'orange'].flatMap(c => (detail[c]?.players || []).map(p => ({ ...p, color: c })));
-  const rows = [['Auto', p => p.car_name || '–'], ['Lenkempfindlichkeit', p => fmt.num(p.steering_sensitivity)],
-    ...Object.entries(cameraLabels).map(([k, label]) => [label, p => fmt.num(p.camera?.[k])])];
-  return h('div', { style: { overflowX: 'auto' } }, h('table', { class: 'stats' },
-    h('thead', null, h('tr', null, h('th', null, ''), players.map(p => h('th', null, h('span', { class: p.color === 'blue' ? 'b' : 'o' }, p.name))))),
-    h('tbody', null, rows.map(([label, get]) => h('tr', null, h('td', null, label), players.map(p => h('td', { class: 'num' }, get(p))))))));
+const avg = list => list.length ? list.reduce((a, b) => a + b, 0) / list.length : undefined;
+
+// compareRows sets the user against the lobby, the teammates or the opponents.
+function compareRows(players, me, t, dur) {
+  const [group, defs] = groups[t];
+  const others = { lobby: players, mates: players.filter(p => p.color === me.color && p !== me), opp: players.filter(p => p.color !== me.color) }[ref];
+  const out = [];
+  for (const [label, key, kind = 'int', unit] of defs) {
+    const of = p => stat(p, group, key, kind, dur);
+    const mine = of(me);
+    if (mine === undefined) continue;
+    const values = players.map(of).filter(v => v !== undefined);
+    const base = avg(others.map(of).filter(v => v !== undefined));
+    const max = Math.max(...values.map(Math.abs)) * 1.15 || 1;
+    let delta = '-';
+    const d = base === undefined ? 0 : mine - base;
+    if (base !== undefined) {
+      const sign = Math.abs(d) < 0.05 ? '±' : d > 0 ? '+' : '−';
+      if (deltaMode === 'abs') delta = kind === 'share' ? sign + mmss(d / 100 * dur) : kind === 'pct' ? sign + dec(Math.abs(d)) + ' P.' : sign + show(Math.abs(d), kind === 'int' && Math.abs(d) % 1 ? 'dec' : kind, unit, dur);
+      else delta = kind === 'share' || kind === 'pct' ? sign + dec(Math.abs(d)) + ' P.' : base ? sign + Math.round(Math.abs(d) / Math.abs(base) * 100) + '%' : '-';
+    }
+    out.push(h('div', { class: 'cmp', title: `${label}: ${me.name} ${show(mine, kind, unit, dur)}` + (base === undefined ? '' : `, ${refNames[ref]} ${show(base, kind === 'int' ? 'dec' : kind, unit, dur)}`) },
+      h('span', { class: 'n3' }, label),
+      h('span', { class: 'track' }, h('span', { class: 'me', style: { width: Math.max(0, mine / max * 100) + '%' } }),
+        base === undefined ? null : h('span', { class: 'ref', style: { left: Math.max(0, base / max * 100) + '%' } })),
+      h('span', { class: 'r num' }, show(mine, kind, unit, dur)),
+      h('span', { class: 'r num ' + (base !== undefined && d >= 0 ? 'a3' : 'n4') }, delta)));
+  }
+  return out;
+}
+
+// playerTable has the players as columns and the rows as [label, value(p)].
+function playerTable(players, me, rows) {
+  return h('table', { class: 'table' },
+    h('thead', null, h('tr', null, h('th'), players.map(p => h('th', { class: 'r' }, h('span', { class: p.color }, p.name))))),
+    h('tbody', null, rows.map(([label, get]) => h('tr', null, h('td', { class: 'n3' }, label),
+      players.map(p => h('td', { class: 'r num' + (p === me ? ' mine' : '') }, get(p)))))));
+}
+
+const deg = v => typeof v === 'number' ? fixed(v, 0).replace('-', '−') + '°' : '–';
+const carRows = [['Auto', p => p.car_name || '–'], ['Lenkempfindlichkeit', p => fixed(p.steering_sensitivity, 1)], ['Sichtfeld', p => deg(p.camera?.fov)],
+  ['Höhe', p => fixed(p.camera?.height, 0)], ['Neigung', p => deg(p.camera?.pitch)], ['Abstand', p => fixed(p.camera?.distance, 0)],
+  ['Steifheit', p => fixed(p.camera?.stiffness, 2)], ['Schwenkgeschwindigkeit', p => fixed(p.camera?.swivel_speed, 1)],
+  ['Übergangsgeschwindigkeit', p => fixed(p.camera?.transition_speed, 1)]];
+
+function overview(r, d, also) {
+  const possession = ['blue', 'orange'].map(c => d[c]?.stats?.ball?.possession_time || 0);
+  const all = possession[0] + possession[1];
+  const info = [['Replay Name', r.title], ['Playlist', plName(r.playlist_id, r.playlist)], ['Map', r.map],
+    ['Dauer', fmt.dur(r.duration) + (r.overtime ? ' (Verlängerung' + (d.overtime_seconds ? ' ' + fmt.dur(d.overtime_seconds) : '') + ')' : '')],
+    ['Gespielt', fmt.day(r.date) + ', ' + fmt.clock(r.date)], ['Server', [d.server?.name, d.server?.region].filter(Boolean).join(', ') || '–'],
+    ['Ordner', r.own ? r.group || 'Eingang' : '–'], ['Sichtbarkeit', visibilityNames[r.visibility] || r.visibility],
+    ['Hochgeladen', 'von ' + r.uploader + (also.length ? ', auch von ' + also.map(a => a.uploader).join(', ') : '')]];
+  const players = [...r.blue.players.map(p => ({ ...p, color: 'blue' })), ...r.orange.players.map(p => ({ ...p, color: 'orange' }))];
+  const core = (p, k) => p.core ? p[k] : '–';
+  return h('div', { class: 'd-over' },
+    h('div', { class: 'stack', style: { gap: 'var(--space-4)' } },
+      h('div', { class: 'kv' }, info.map(([k, v]) => [h('span', null, k), h('span', null, v)])),
+      all ? h('div', { class: 'poss' },
+        h('div', { class: 'n4' }, h('span', { class: 'grow' }, `Ballbesitz Blau ${fmt.dur(possession[0])}, ${fmt.pct(possession[0], all)}`),
+          h('span', null, `${fmt.pct(possession[1], all)}, ${fmt.dur(possession[1])} Orange`)),
+        h('div', { class: 'bar' }, h('i', { style: { flex: possession[0] } }), h('i', { style: { flex: possession[1] } }))) : null),
+    h('table', { class: 'table' },
+      h('thead', null, h('tr', null, h('th', null, 'Spieler'), ['Punkte', 'Tore', 'Vorlagen', 'Paraden', 'Schüsse'].map(t => h('th', { class: 'r' }, t)))),
+      h('tbody', null, players.map(p => h('tr', { class: p.me ? 'sel' : '' },
+        h('td', null, h('span', { class: p.color }, '●'), ' ', p.name, p.mvp ? [' ', h('span', { class: 'tag tag-outline' }, 'MVP')] : null),
+        h('td', { class: 'r' }, p.score), h('td', { class: 'r' }, core(p, 'goals')), h('td', { class: 'r' }, core(p, 'assists')),
+        h('td', { class: 'r' }, core(p, 'saves')), h('td', { class: 'r' }, core(p, 'shots')))))));
+}
+
+function actions(r, reload) {
+  const items = [];
+  if (r.own) {
+    items.push({ label: 'In Ordner verschieben …', icon: 'folder-simple', run: async () => {
+      const f = await pickFolder(document.querySelector('[data-more]'), { current: r.group_id });
+      if (f && await moveTo([r.id], f)) reload();
+    } });
+    for (const [v, label] of Object.entries(visibilityNames)) {
+      items.push({ label: 'Sichtbarkeit: ' + label, on: r.visibility === v, run: async () => {
+        if (await run(() => api('/api/replays/visibility', { method: 'POST', body: { ids: [r.id], visibility: v } }), 'Sichtbarkeit geändert')) reload();
+      } });
+    }
+  }
+  if (r.borrowed) {
+    const keep = r.borrowed === 'temp';
+    items.push('-', { label: keep ? 'Geladene Datei behalten' : 'Geladene Datei wieder löschen lassen', run: async () => {
+      if (await run(() => api('/api/replays/' + r.id + '/keep', { method: 'POST', body: { keep } }))) reload();
+    } });
+  }
+  if (r.local) items.push({ label: 'Datei im Ordner zeigen', icon: 'file-text', run: () => run(() => api('/api/replays/' + r.id + '/reveal', { method: 'POST' })) });
+  if (r.own) {
+    items.push('-', { label: 'Auf ballchasing löschen …', icon: 'trash', danger: true, run: async () => {
+      if (await confirmDialog('Replay löschen', 'Das Replay wird auf ballchasing endgültig gelöscht. Das lässt sich nicht rückgängig machen.', 'Endgültig löschen', true)
+        && await run(() => api('/api/replays/delete', { method: 'POST', body: { ids: [r.id] } }), 'Gelöscht')) location.hash = '#/verlauf';
+    } });
+  }
+  return items;
 }
 
 export async function mount(root, ctx) {
+  const page = h('div', { class: 'page', style: { gap: 'var(--space-3)' } }, h('div', { class: 'n4', style: { fontSize: '13px' } }, 'Lade Statistiken …'));
+  root.append(page);
   const id = ctx.param;
-  root.append(h('div', { class: 'muted' }, 'Lade Statistiken …'));
-  const data = await api('/api/replays/' + encodeURIComponent(id));
-  const r = data.replay;
-  const d = data.detail || {};
-  const meIDs = new Set(ctx.state.me || []);
-  ctx.setTitle(r.title || 'Replay');
-  let tab = 'overview';
-  const body = h('div');
+  if (id !== shownID) { tab = 0; shownID = id; }
 
-  const info = [
-    ['Gespielt', fmt.date(r.date)], ['Playlist', r.playlist], ['Map', r.map],
-    ['Dauer', fmt.dur(r.duration) + (r.overtime ? ' (Verlängerung' + (d.overtime_seconds ? ` ${fmt.dur(d.overtime_seconds)}` : '') + ')' : '')],
-    ['Server', d.server ? [d.server.name, d.server.region].filter(Boolean).join(', ') : '–'], ['Saison', d.season ?? '–'],
-    ['Sichtbarkeit', visibilityNames[r.visibility] || r.visibility], ['Ordner', r.own ? (r.group || 'Eingang') : '–'],
-    ['Hochgeladen', fmt.date(r.created) + ' von ' + r.uploader],
-  ];
-  const possession = ['blue', 'orange'].map(c => d[c]?.stats?.ball?.possession_time || 0);
+  async function load() {
+    const data = await api('/api/replays/' + encodeURIComponent(id));
+    const r = data.replay;
+    const d = data.detail || {};
+    const meIDs = new Set(ctx.state.me || []);
+    const players = ['blue', 'orange'].flatMap(c => (d[c]?.players || []).map(p => ({ ...p, color: c })));
+    const me = players.find(p => p.id && meIDs.has(p.id.platform + ':' + p.id.id));
+    const content = h('div', { class: 'stack', style: { gap: 'var(--space-3)' } });
+    const vtabs = h('div', { class: 'vtabs', role: 'tablist', 'aria-orientation': 'vertical' });
 
-  const tabs = [['overview', 'Überblick'], ...groups.map(([k, label]) => [k, label]), ['camera', 'Kamera & Auto']];
-  const tabBar = h('div', { class: 'tabs', role: 'tablist' });
-  function render() {
-    fill(tabBar, ...tabs.map(([k, label]) => h('button', { role: 'tab', 'aria-selected': String(tab === k), class: tab === k ? 'active' : '',
-      onclick: () => { tab = k; render(); } }, label)));
-    if (tab === 'overview') {
-      fill(body, h('div', { class: 'grid grid-2' },
-        h('div', { class: 'card' }, h('h2', null, 'Spiel'), h('table', { class: 'stats' }, h('tbody', null,
-          info.map(([k, v]) => h('tr', null, h('td', { class: 'muted' }, k), h('td', null, v)))))),
-        h('div', { class: 'card' }, h('h2', null, 'Ballbesitz'),
-          possession[0] + possession[1] > 0 ? h('div', { class: 'stack' },
-            h('div', { class: 'row', style: { justifyContent: 'space-between' } },
-              h('span', null, h('i', { class: 'swatch', style: { background: 'var(--blue)' } }), 'Blau ', h('strong', null, fmt.dur(possession[0])),
-                h('span', { class: 'muted' }, ' · ' + fmt.pct(possession[0], possession[0] + possession[1]))),
-              h('span', null, h('span', { class: 'muted' }, fmt.pct(possession[1], possession[0] + possession[1]) + ' · '), h('strong', null, fmt.dur(possession[1])), ' Orange',
-                h('i', { class: 'swatch', style: { background: 'var(--orange)', margin: '0 0 0 6px' } }))),
-            h('div', { class: 'row nowrap', style: { gap: '2px', height: '10px' } },
-              h('i', { style: { flex: possession[0], height: '100%', background: 'var(--blue)', borderRadius: '4px 0 0 4px' } }),
-              h('i', { style: { flex: possession[1], height: '100%', background: 'var(--orange)', borderRadius: '0 4px 4px 0' } })))
-            : h('div', { class: 'muted' }, 'Keine Angabe')),
-        h('div', { class: 'card', style: { gridColumn: '1 / -1' } }, h('h2', null, 'Spieler'), playerTable(r))));
-    } else if (tab === 'camera') {
-      fill(body, h('div', { class: 'card' }, cameraTable(d)));
-    } else {
-      const [, , labels] = groups.find(([k]) => k === tab);
-      fill(body, h('div', { class: 'card' }, statTable(d, tab, labels, meIDs)));
+    function render() {
+      fill(vtabs, tabs.map((label, i) => h('button', { role: 'tab', 'aria-selected': String(tab === i), class: tab === i ? 'on' : '', onclick: () => { tab = i; render(); } }, label)));
+      if (tab === 0) return fill(content, overview(r, d, data.also || []));
+      if (tab === 6) return fill(content, players.length ? playerTable(players, me, carRows) : h('div', { class: 'empty' }, 'Für dieses Replay liefert ballchasing hier nichts.'));
+      const [group, defs] = groups[tab];
+      if (!me) {
+        // without the user in the game, the numbers of all players side by side
+        const rows = defs.map(([label, key, kind = 'int', unit]) => [label, key, kind, unit])
+          .filter(([, key, kind]) => players.some(p => stat(p, group, key, kind, r.duration) !== undefined))
+          .map(([label, key, kind, unit]) => [label, p => { const v = stat(p, group, key, kind, r.duration); return v === undefined ? '–' : show(v, kind, unit, r.duration); }]);
+        return fill(content, rows.length ? playerTable(players, null, rows) : h('div', { class: 'empty' }, 'In diesem Bereich gibt es keine vergleichbaren Zahlen.'));
+      }
+      const hasMates = players.some(p => p.color === me.color && p !== me);
+      if (ref === 'mates' && !hasMates) ref = 'lobby';
+      const rows = compareRows(players, me, tab, r.duration);
+      fill(content,
+        h('div', { class: 'cmp-bar' },
+          h('span', { class: 'key' }, h('span', { class: 'key-me' }), me.name),
+          h('span', { class: 'key' }, h('span', { class: 'key-ref' }), refNames[ref]),
+          h('span', { class: 'end' }, seg([['rel', 'Relativ'], ['abs', 'Absolut']], deltaMode, v => { deltaMode = v; render(); })),
+          seg([['lobby', 'Lobby'], hasMates ? ['mates', 'Mitspieler'] : null, ['opp', 'Gegner']].filter(Boolean), ref, v => { ref = v; render(); })),
+        rows.length ? rows : h('div', { class: 'n4', style: { padding: 'var(--space-4) 0', fontSize: '13px' } }, 'In diesem Bereich gibt es keine vergleichbaren Zahlen.'));
     }
+
+    const win = r.result === 'win';
+    fill(page,
+      h('div', { class: 'd-name ell', title: r.title }, r.title),
+      h('div', { class: 'head', style: { flexWrap: 'wrap' } },
+        h('span', { class: 'd-score' }, scoreLine(r)),
+        r.result ? h('span', { class: 'tag ' + (win ? 'tag-accent' : 'tag-neutral'), style: { fontSize: '13px' } }, win ? 'Sieg' : 'Niederlage') : null,
+        h('span', { class: 'end actions' },
+          h('a', { class: 'btn btn-secondary', href: r.link, target: '_blank', rel: 'noopener noreferrer' }, ico('arrow-square-out'), 'ballchasing'),
+          h('span', { class: 'tipwrap' },
+            h('button', { class: 'btn btn-secondary', 'aria-describedby': 'load-tip', onclick: async () => {
+              if (await run(() => api('/api/replays/' + r.id + '/borrow', { method: 'POST' }), 'Liegt jetzt im Replay-Ordner, im Spiel unter „Replays“')) load();
+            } }, ico('game-controller'), 'Ins Spiel laden'),
+            h('span', { class: 'tooltip', id: 'load-tip', role: 'tooltip' }, 'Lädt die Replay-Datei von ballchasing herunter und legt sie in deinen Replay-Ordner. Danach findest du sie im Spiel unter ',
+              h('span', { style: { color: 'var(--color-text)' } }, 'Replays'), ' und kannst sie dort ansehen.')),
+          actions(r, load).length ? h('button', { class: 'btn btn-secondary btn-icon', 'data-more': '', 'aria-label': 'Weitere Aktionen', title: 'Weitere Aktionen',
+            onclick: e => menu(e.currentTarget, actions(r, load), { width: 240 }) }, ico('dots-three')) : null)),
+      h('div', { class: 'd-body' }, vtabs, content));
+    render();
   }
 
-  fill(root, 
-    h('div', { class: 'row' }, h('a', { href: '#/verlauf' }, '← Verlauf'), h('span', { class: 'grow' }),
-      h('a', { class: 'btn', href: r.link, target: '_blank', rel: 'noopener noreferrer' }, 'Auf ballchasing öffnen ↗'),
-      h('button', { onclick: e => menu(e.currentTarget, replayActions(r, () => location.reload())) }, 'Aktionen ⋯')),
-    h('div', { class: 'card row', style: { gap: '16px' } }, resultBadge(r), h('div', { style: { fontSize: '20px' } }, scoreLine(r)),
-      h('span', { class: 'muted' }, r.playlist + ' · ' + r.map),
-      r.result ? h('span', { class: 'chip ' + (r.result === 'win' ? 'ok' : 'bad') }, h('span', { class: 'dot' }), r.result === 'win' ? 'Sieg' : 'Niederlage') : null),
-    data.also?.length ? h('div', { class: 'banner info' }, 'Dasselbe Spiel hat auch ', data.also.map(a => a.uploader).join(', '), ' hochgeladen.') : null,
-    tabBar, body);
-  render();
+  await load();
+  return { refresh: load };
 }

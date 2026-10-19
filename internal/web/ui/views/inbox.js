@@ -1,118 +1,87 @@
-import { api, h, fill, fmt, run, debounce, promptDialog, pickFolder, resultBadge, scoreLine } from '../lib.js';
+import { api, h, ico, fill, fmt, flash, debounce, pickFolder, moveTo, plName, resultBadge, scoreLine, mates } from '../lib.js';
 
-export const title = 'Eingang';
+const chosen = new Map(); // replay ID -> {id, name} picked by hand
 
 export async function mount(root, ctx) {
-  let sessions = [];
+  const page = h('div', { class: 'page' });
+  root.append(page);
   let items = [];
-  let currentID = null;
-  const box = h('div', { class: 'stack' });
-  root.append(
-    h('div', { class: 'card row', style: { gap: '14px', fontSize: '13px' } },
-      h('span', null, h('kbd', null, '1'), '–', h('kbd', null, '4'), ' Ordner'),
-      h('span', null, h('kbd', null, 'Enter'), ' Vorschlag übernehmen'),
-      h('span', null, h('kbd', null, 'N'), ' neuer Ordner'),
-      h('span', null, h('kbd', null, 'E'), ' überspringen'),
-      h('span', null, h('kbd', null, 'J'), ' / ', h('kbd', null, 'K'), ' nächstes / voriges'),
-      h('span', null, h('kbd', null, 'O'), ' auf ballchasing öffnen')),
-    box);
+  const sel = new Set();
 
-  const index = () => Math.max(0, items.findIndex(it => it.replay.id === currentID));
-  const current = () => items[index()];
+  // target is the folder a row goes to: picked by hand, else the first suggestion.
+  const target = it => chosen.get(it.replay.id) || (it.suggestions[0] && { id: it.suggestions[0].group_id, name: it.suggestions[0].name });
 
-  async function moveCurrent(group, name) {
-    const it = current();
-    if (!it) return;
-    const next = items[index() + 1] || items[index() - 1];
-    const res = await run(() => api('/api/replays/move', { method: 'POST', body: { ids: [it.replay.id], group } }));
-    if (res && !res.errors.length) {
-      run(async () => {}, 'Nach „' + name + '“');
-      currentID = next ? next.replay.id : null;
-    } else if (res) {
-      run(async () => { throw new Error(res.errors[0]); });
+  async function move(ids, f, quiet) {
+    const n = await moveTo(ids, f, quiet);
+    ids.forEach(id => { sel.delete(id); chosen.delete(id); });
+    return n;
+  }
+
+  // acceptAll moves every row to its target, one request per folder.
+  async function acceptAll(list) {
+    const by = new Map();
+    for (const it of list) {
+      const t = target(it);
+      if (!by.has(t.id)) by.set(t.id, { f: t, ids: [] });
+      by.get(t.id).ids.push(it.replay.id);
     }
-    await load();
-  }
-
-  async function newFolder() {
-    const name = await promptDialog('Neuer Ordner', 'Name des Ordners (auf oberster Ebene)');
-    if (!name) return;
-    const g = await run(() => api('/api/groups', { method: 'POST', body: { name, parent: '' } }));
-    if (g) moveCurrent(g.id, name);
-  }
-
-  function step(delta) {
-    if (!items.length) return;
-    const i = Math.min(items.length - 1, Math.max(0, index() + delta));
-    currentID = items[i].replay.id;
-    render();
-    box.querySelector('.item.current')?.scrollIntoView({ block: 'nearest' });
+    let n = 0;
+    for (const { f, ids } of by.values()) n += await move(ids, f, true);
+    if (n) flash(`${n} Replays einsortiert`);
+    load();
   }
 
   function row(it) {
     const r = it.replay;
-    const isCur = r.id === currentID;
-    const el = h('div', { class: 'item' + (isCur ? ' current' : ''), style: { gridTemplateColumns: 'auto 1fr auto auto' },
-      onclick: () => { currentID = r.id; render(); } },
-      resultBadge(r),
-      h('div', { class: 'grow' }, scoreLine(r),
-        h('div', { class: 'faint ellipsis', style: { fontSize: '12px' } }, [r.playlist, r.map, fmt.dur(r.duration)].join(' · '))),
-      h('div', { class: 'when' }, fmt.clock(r.date)),
-      h('a', { class: 'icon-btn', href: r.link, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Auf ballchasing öffnen', onclick: e => e.stopPropagation() }, '↗'),
-      isCur ? h('div', { class: 'item-detail', style: { paddingLeft: '34px' } },
-        h('div', { class: 'row' },
-          it.suggestions.length ? it.suggestions.slice(0, 4).map((s, i) => h('button', { class: i === 0 ? 'primary' : '', title: s.reason,
-            onclick: e => { e.stopPropagation(); moveCurrent(s.group_id, s.name); } },
-            h('kbd', null, String(i + 1)), ' ', s.name, h('span', { class: i === 0 ? '' : 'muted', style: { fontSize: '12px', opacity: .8 } }, ' · ' + s.reason)))
-            : h('span', { class: 'muted' }, 'Noch keine Vorschläge – ordne ein paar Replays von Hand ein.'),
-          h('button', { onclick: async e => {
-            e.stopPropagation();
-            const f = await pickFolder('Ordner wählen', { inbox: false });
-            if (f) moveCurrent(f.id, f.name);
-          } }, 'Anderer Ordner …'),
-          h('button', { class: 'ghost', onclick: e => { e.stopPropagation(); newFolder(); } }, h('kbd', null, 'N'), ' Neuer Ordner'),
-          h('button', { class: 'ghost', onclick: e => { e.stopPropagation(); step(1); } }, h('kbd', null, 'E'), ' Überspringen'))) : null);
-    return el;
+    const t = target(it);
+    const on = sel.has(r.id);
+    return h('tr', { class: on ? 'sel' : '' },
+      h('td', null, h('input', { type: 'checkbox', 'aria-label': 'Auswählen', checked: on, onchange: e => { e.target.checked ? sel.add(r.id) : sel.delete(r.id); render(); } })),
+      h('td', null, resultBadge(r)),
+      h('td', { class: 'nowrap' }, scoreLine(r), h('div', { class: 'sm n5' }, [mates(r), fmt.when(r.date)].filter(Boolean).join(', '))),
+      h('td', null, h('div', { class: 'ell n3', style: { maxWidth: '160px' }, title: r.title }, r.title)),
+      h('td', { class: 'nowrap n4' }, plName(r.playlist_id, r.playlist)),
+      h('td', null, h('button', { class: 'picker' + (t ? ' has' : ''), title: it.suggestions[0]?.reason || 'kein Vorschlag', 'aria-haspopup': 'menu',
+        onclick: async e => {
+          const f = await pickFolder(e.currentTarget, { suggestions: it.suggestions, current: t?.id });
+          if (f) { chosen.set(r.id, f); render(); }
+        } }, ico('folder-simple'), h('span', { class: 'grow ell', style: { textAlign: 'left' } }, t ? t.name : 'Ordner wählen'), ico('caret-down'))),
+      h('td', { class: 'r' }, h('button', { class: 'btn btn-ghost sm', disabled: !t, onclick: async () => { await move([r.id], t); load(); } }, ico('check'), 'OK')));
   }
 
   function render() {
-    if (!items.length) {
-      fill(box, h('div', { class: 'card empty' }, 'Alles einsortiert. Neue Uploads ohne passende Regel landen hier.'));
-      return;
-    }
-    if (!items.some(it => it.replay.id === currentID)) currentID = items[0].replay.id;
-    fill(box, ...sessions.map(s => h('div', { class: 'list' },
-      h('div', { class: 'list-head' }, h('strong', { style: { color: 'var(--text)' } }, 'Session ' + fmt.day(s.start) + ', ' + fmt.clock(s.start) + '–' + fmt.clock(s.end)),
-        h('span', null, `${s.items.length} Spiele · ${s.wins}–${s.losses}`)),
-      s.items.map(row))));
+    const withTarget = items.filter(target);
+    const all = items.length > 0 && items.every(it => sel.has(it.replay.id));
+    fill(page,
+      h('div', { class: 'head tight' }, h('h1', null, 'Eingang'),
+        h('span', { class: 'nowrap n4', style: { fontSize: '13px' } }, `${items.length} Replays, ${withTarget.length} mit Vorschlag`),
+        h('span', { class: 'end actions' },
+          h('button', { class: 'btn btn-secondary', disabled: !sel.size, onclick: async e => {
+            const f = await pickFolder(e.currentTarget);
+            if (f) { await move([...sel], f); load(); }
+          } }, sel.size ? `${sel.size} verschieben` : 'Auswahl verschieben'),
+          h('button', { class: 'btn btn-primary', disabled: !withTarget.length, onclick: () => acceptAll(withTarget) },
+            ico('checks'), `${withTarget.length} Vorschläge übernehmen`))),
+      items.length ? h('table', { class: 'table' },
+        h('thead', null, h('tr', null,
+          h('th', { style: { width: '24px' } }, h('input', { type: 'checkbox', 'aria-label': 'Alle auswählen', checked: all,
+            onchange: () => { all ? sel.clear() : items.forEach(it => sel.add(it.replay.id)); render(); } })),
+          h('th', { style: { width: '28px' } }), ['Spiel', 'Replay Name', 'Playlist', 'Ordner'].map(t => h('th', null, t)), h('th', { style: { width: '70px' } }))),
+        h('tbody', null, items.map(row)))
+        : h('div', { class: 'empty' }, ico('check-circle'), 'Alles einsortiert. Neue Uploads ohne passende Regel landen hier.'));
   }
 
   async function load() {
-    const data = await api('/api/inbox');
-    sessions = data.sessions;
+    const { sessions } = await api('/api/inbox');
     items = sessions.flatMap(s => s.items);
+    const present = new Set(items.map(it => it.replay.id));
+    for (const id of sel) if (!present.has(id)) sel.delete(id);
     render();
   }
 
-  function onKey(e) {
-    if (e.ctrlKey || e.altKey || e.metaKey || e.target.matches('input, select, textarea') || document.querySelector('.overlay-bg, .menu')) return;
-    const it = current();
-    const k = e.key.toLowerCase();
-    if (k === 'j' || e.key === 'ArrowDown') step(1);
-    else if (k === 'k' || e.key === 'ArrowUp') step(-1);
-    else if (k === 'e') step(1);
-    else if (k === 'n') newFolder();
-    else if (k === 'o' && it) window.open(it.replay.link, '_blank', 'noopener');
-    else if (e.key === 'Enter' && it?.suggestions[0]) moveCurrent(it.suggestions[0].group_id, it.suggestions[0].name);
-    else if (/^[1-4]$/.test(e.key) && it?.suggestions[Number(e.key) - 1]) {
-      const s = it.suggestions[Number(e.key) - 1];
-      moveCurrent(s.group_id, s.name);
-    } else return;
-    e.preventDefault();
-  }
-
   await load();
-  document.addEventListener('keydown', onKey);
-  ctx.on('inbox', debounce(load, 300));
-  return { refresh: load, destroy: () => document.removeEventListener('keydown', onKey) };
+  const soon = debounce(load, 300);
+  ctx.on('inbox', soon);
+  ctx.on('groups', soon);
+  return { refresh: load };
 }

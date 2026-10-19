@@ -149,13 +149,13 @@ Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vorde
 
 | Bereich | Inhalt |
 |---|---|
-| Übersicht | Status (ballchasing, Rocket League, Pause), Warteschlange mit „Jetzt erneut“, letzte Uploads, aktuelle Session mit Siegesfolge, Replays hochladen (auch per Drag & Drop auf die Seite) |
-| Verlauf | alle Replays deines Kontos und die Spiele mit dir, die Mitspieler hochgeladen haben (Duplikate nur einmal). Suche nach Map, Spieler oder Datei, Filter nach Status, Playlist, Zeitraum, Ordner und Herkunft. Aufklappen zeigt Punkte, Tore, Vorlagen, Paraden und Schüsse; Mehrfachauswahl zum Verschieben, Ändern der Sichtbarkeit oder Löschen |
-| Replay-Details | alle Statistiken der ballchasing-API in Reitern: Überblick, Kern, Boost, Bewegung, Position, Demos, Kamera & Auto |
-| Statistik | 7 Tage, 14 Tage, Monat oder Gesamt: Spiele, Siegquote, Bilanz, Uploads, Spiele pro Tag, Verteilung nach Playlist, beste Maps |
-| Ordner | der ballchasing-Ordnerbaum mit Anzahl, neue Ordner und Unterordner, Replays per Drag & Drop verschieben, Vorschläge („8 Ranked-Standard-Spiele → Ranked › Threes“) und ganze Sessions auf einmal einordnen oder nach Playlist aufteilen |
-| Eingang | alles ohne Ordner, mit Vorschlag pro Replay. Tastatur: **1–4** Ordner, **Enter** Vorschlag übernehmen, **N** neuer Ordner, **E** überspringen, **J/K** weiter/zurück, **O** auf ballchasing öffnen |
-| Regeln | Regeln nach Playlist und Mitspielern, Reihenfolge per Ziehen; die erste passende gewinnt. Vorschläge für neue Regeln aus deinem Einordnen |
+| Übersicht | Warteschlange und letzte Uploads in einer Tabelle (Alle, Wartet, Fehler, Hochgeladen), Pause, fehlgeschlagene Uploads erneut senden, Replays hochladen (auch per Drag & Drop auf die Seite). Die Statusleiste unten zeigt das Upload-Kontingent, Probleme mit ballchasing und die Pause |
+| Eingang | alles ohne Ordner, mit Vorschlag pro Replay und Ordnerauswahl je Zeile; alle Vorschläge auf einmal übernehmen oder eine Auswahl in einen Ordner verschieben |
+| Verlauf | alle Replays deines Kontos und die Spiele mit dir, die Mitspieler hochgeladen haben (Duplikate nur einmal), nach Session oder als Liste. Suche nach Map, Playlist oder Mitspieler; eine Session auf einmal verschieben |
+| Replay-Details | Überblick mit Spielern und Ballbesitz, dazu Kern, Boost, Bewegung, Position und Demos im Vergleich mit Lobby, Mitspielern oder Gegnern (relativ oder absolut) sowie Kamera & Auto. Ins Spiel laden, Sichtbarkeit, Verschieben und Löschen |
+| Statistik | 7 Tage, 14 Tage, Monat oder Gesamt: Spiele, Siegquote, Bilanz, Spiele pro Tag, Verteilung nach Playlist, beste Maps |
+| Ordner | der ballchasing-Ordnerbaum mit Anzahl und Filter, neue Ordner und Unterordner, Replays per Auswahl oder Drag & Drop verschieben und ihre Sichtbarkeit ändern |
+| Regeln | Regeln nach Playlist und Mitspielern, direkt in der Liste bearbeiten, Reihenfolge per Ziehen; die erste passende gewinnt. Vorschläge für neue Regeln aus deinem Einordnen |
 | Einstellungen | alles aus der Einrichtung; jede Änderung gilt sofort. Was ein System nicht kann (etwa Hotkeys auf dem Mac), blendet die Oberfläche aus und sagt warum |
 
 Replays, die Mitspieler hochgeladen haben, lassen sich nur ansehen und ins Spiel laden. Verschieben, Sichtbarkeit und Löschen erlaubt die ballchasing-API nur beim eigenen Upload.

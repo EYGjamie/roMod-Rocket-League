@@ -1,187 +1,75 @@
-import { api, h, fill, svg, fmt, debounce } from '../lib.js';
+import { api, h, fill, fmt, debounce, seg, plName } from '../lib.js';
 
-export const title = 'Statistik';
+const shortMonths = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const dayFmt = new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
+const monthFmt = new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric' });
+let days = 14;
 
-const series = [
-  ['wins', 'Siege', 'win'],
-  ['losses', 'Niederlagen', 'loss'],
-  ['other', 'ohne Ergebnis', 'none'],
-];
-
-// tooltip shows one shared tip next to the pointer or the focused mark.
-const tip = h('div', { class: 'tip', hidden: true, role: 'tooltip' });
-function showTip(anchor, titleText, rows, ev) {
-  if (!tip.isConnected) document.body.append(tip);
-  fill(tip, h('div', { class: 't' }, titleText),
-    ...rows.map(([value, label, cls]) => h('div', { class: 'r' },
-      cls ? h('span', { class: 'key', style: { background: `var(--${cls})` } }) : null, h('b', null, value), h('span', { class: 'muted' }, label))));
-  tip.hidden = false;
-  const r = anchor.getBoundingClientRect();
-  const x = ev && ev.clientX ? ev.clientX : r.left + r.width / 2;
-  const y = ev && ev.clientY ? ev.clientY : r.top;
-  const w = tip.offsetWidth, th = tip.offsetHeight;
-  tip.style.left = Math.max(8, Math.min(x + 14, innerWidth - w - 8)) + 'px';
-  tip.style.top = Math.max(8, y - th - 12 < 8 ? y + 18 : y - th - 12) + 'px';
-}
-const hideTip = () => { tip.hidden = true; };
-
-function hoverable(el, titleText, rows) {
-  el.setAttribute('tabindex', '0');
-  el.addEventListener('pointermove', e => showTip(el, titleText, rows, e));
-  el.addEventListener('pointerleave', hideTip);
-  el.addEventListener('focus', () => showTip(el, titleText, rows));
-  el.addEventListener('blur', hideTip);
-  return el;
-}
-
-// niceTicks returns clean integer ticks from 0 up to at least max.
-function niceTicks(max) {
-  const raw = max / 4;
-  const pow = 10 ** Math.floor(Math.log10(Math.max(raw, 1)));
-  const step = Math.max(1, [1, 2, 5, 10].map(m => m * pow).find(s => s >= raw));
-  const ticks = [];
-  for (let v = 0; v <= max + step - 1; v += step) ticks.push(v);
-  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
-  return ticks;
-}
-
-// topRounded draws a bar with a 4px rounded top and a square base.
-function barPath(x, y, w, hgt, rounded) {
-  if (!rounded || hgt < 5) return `M${x},${y}h${w}v${hgt}h${-w}Z`;
-  const r = Math.min(4, w / 2);
-  return `M${x},${y + hgt}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + hgt}Z`;
-}
-
-// columnChart draws stacked columns of wins, losses and games without a
-// result per period, sized to the container.
-function columnChart(container, periods, unit) {
-  const W = Math.max(320, container.clientWidth || 760);
-  const H = 240, padL = 34, padR = 8, padT = 10, padB = 26;
-  const totals = periods.map(p => p.wins + p.losses + p.other);
-  const ticks = niceTicks(Math.max(1, ...totals));
-  const top = ticks[ticks.length - 1];
-  const band = (W - padL - padR) / Math.max(1, periods.length);
-  const bw = Math.max(3, Math.min(24, band * 0.62));
-  const y = v => padT + (H - padT - padB) * (1 - v / top);
-  const every = Math.ceil(periods.length / Math.max(1, Math.floor((W - padL) / 56)));
-  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img',
-    'aria-label': `Spiele pro ${unit === 'day' ? 'Tag' : 'Monat'}: Siege und Niederlagen` });
-  root.append(svg('g', { class: 'chart-grid' }, ticks.map(t => svg('line', { x1: padL, x2: W - padR, y1: y(t), y2: y(t) }))));
-  root.append(svg('g', null, ticks.map(t => svg('text', { x: padL - 6, y: y(t) + 4, 'text-anchor': 'end', class: 'num' }, String(t)))));
-  periods.forEach((p, i) => {
-    const x = padL + band * i + (band - bw) / 2;
-    const g = svg('g', { class: 'col', 'aria-label': `${p.label}: ${p.wins} Siege, ${p.losses} Niederlagen` + (p.other ? `, ${p.other} ohne Ergebnis` : '') });
-    g.append(svg('rect', { class: 'hit', x: padL + band * i, y: padT, width: band, height: H - padT - padB, fill: 'transparent' }));
-    let base = 0;
-    const parts = series.filter(([k]) => p[k] > 0);
-    parts.forEach(([k, , cls], j) => {
-      const y0 = y(base), y1 = y(base + p[k]);
-      const gap = j > 0 ? 2 : 0; // 2px surface gap between stacked segments
-      const hgt = Math.max(1, y0 - y1 - gap);
-      g.append(svg('path', { class: 'mark mark-' + cls, d: barPath(x, y1, bw, hgt, j === parts.length - 1) }));
-      base += p[k];
-    });
-    hoverable(g, p.label, series.map(([k, label, cls]) => [p[k], label, cls]).filter(([v], j) => v > 0 || j < 2));
-    root.append(g);
-    if (i % every === 0) root.append(svg('text', { x: padL + band * i + band / 2, y: H - 8, 'text-anchor': 'middle' }, p.label));
+// columns draws the games per period as stacked bars: wins over losses
+// over games without a result, with a tooltip each.
+function columns(s) {
+  const n = s.per_period.length;
+  const max = Math.max(1, ...s.per_period.map(p => p.wins + p.losses + p.other));
+  const px = v => Math.round(v / max * 168);
+  const every = n > 14 ? 3 : 1;
+  const cls = 'chart' + (n > 14 ? ' dense' : '');
+  const cols = s.per_period.map((p, i) => {
+    const d = new Date(p.start);
+    const games = p.wins + p.losses + p.other;
+    const lines = games ? [['Spiele', games], ['Bilanz', `${p.wins}W-${p.losses}L`], ['Siegquote', fmt.pct(p.wins, p.wins + p.losses)], p.other ? ['ohne Ergebnis', p.other] : null] : [['Nicht gespielt', '']];
+    return h('div', { class: 'col', tabindex: 0, 'aria-label': `${s.unit === 'day' ? dayFmt.format(d) : monthFmt.format(d)}: ${p.wins} Siege, ${p.losses} Niederlagen` },
+      h('div', { class: 'tip' + (i < 2 ? ' l' : i > n - 3 ? ' r' : ''), role: 'tooltip', style: { bottom: px(p.wins) + px(p.losses) + px(p.other) + 10 + 'px' } },
+        h('b', null, s.unit === 'day' ? dayFmt.format(d) : monthFmt.format(d)),
+        lines.filter(Boolean).map(([k, v]) => h('span', null, h('span', null, k), h('span', { class: 'num' }, v)))),
+      [['w', p.wins], ['', p.losses], ['o', p.other]].map(([c, v]) => v ? h('span', { class: c, style: { height: px(v) + 'px' } }) : null));
   });
-  root.append(svg('line', { class: 'chart-axis', x1: padL, x2: W - padR, y1: y(0) + 0.5, y2: y(0) + 0.5 }));
-  fill(container, root);
+  return [h('div', { class: cls }, cols),
+    h('div', { class: cls.replace('chart', 'chart-x') }, s.per_period.map((p, i) => h('span', null, i % every ? '' : s.unit === 'day' ? new Date(p.start).getDate() + '.' : shortMonths[new Date(p.start).getMonth()])))];
 }
-
-function legend(withOther) {
-  return h('div', { class: 'legend' }, series.filter(([k]) => withOther || k !== 'other').map(([, label, cls]) =>
-    h('span', null, h('i', { class: 'swatch', style: { background: `var(--${cls})` } }), label)));
-}
-
-function tableToggle(build) {
-  const box = h('div', { hidden: true, style: { marginTop: '12px', overflowX: 'auto' } });
-  const btn = h('button', { class: 'small ghost', onclick: () => {
-    box.hidden = !box.hidden;
-    btn.textContent = box.hidden ? 'Als Tabelle' : 'Tabelle ausblenden';
-    if (!box.hidden) fill(box, build());
-  } }, 'Als Tabelle');
-  return [btn, box];
-}
-
-const rate = t => t.wins + t.losses > 0 ? t.wins / (t.wins + t.losses) : 0;
 
 export async function mount(root, ctx) {
-  let days = Number((() => { try { return sessionStorage.getItem('statistik-tage'); } catch { return null; } })() ?? 7);
-  if (![7, 14, 30, 0].includes(days)) days = 7;
-  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Zeitraum' });
-  const content = h('div', { class: 'stack' });
-  root.append(h('div', { class: 'row' }, seg), content);
-  let data = null;
-  let chartBox = null;
+  const content = h('div', { style: { display: 'contents' } });
+  root.append(h('div', { class: 'page', style: { gap: 'var(--space-6)' } },
+    h('div', { class: 'head' }, h('h1', null, 'Statistik'),
+      h('span', { class: 'end' }, seg([[7, '7 Tage'], [14, '14 Tage'], [30, 'Monat'], [0, 'Gesamt']], days, v => { days = v; load(); }))),
+    content));
 
-  function renderSeg() {
-    fill(seg, ...[[7, '7 Tage'], [14, '14 Tage'], [30, 'Monat'], [0, 'Gesamt']].map(([d, label]) =>
-      h('button', { class: days === d ? 'active' : '', 'aria-pressed': String(days === d), onclick: () => {
-        days = d;
-        try { sessionStorage.setItem('statistik-tage', String(d)); } catch { /* private mode */ }
-        renderSeg();
-        load();
-      } }, label)));
+  function render(s) {
+    const other = s.per_period.some(p => p.other > 0);
+    const plMax = Math.max(1, ...s.playlists.map(p => p.games));
+    fill(content,
+      h('div', { class: 'kpis' },
+        h('div', { class: 'kpi' }, h('b', null, s.games), 'Spiele'),
+        h('div', { class: 'kpi' }, h('b', null, fmt.pct(s.wins, s.wins + s.losses)), 'Siegquote'),
+        h('div', { class: 'kpi' }, h('b', null, s.wins, h('small', null, 'W'), '-', s.losses, h('small', null, 'L')), 'Bilanz')),
+      s.games ? h('div', { class: 'stack' },
+        h('div', { class: 'legend' }, h('span', null, h('i', { class: 'w' }), 'Siege'), h('span', null, h('i'), 'Niederlagen'),
+          other ? h('span', null, h('i', { class: 'o' }), 'ohne Ergebnis') : null),
+        columns(s)) : h('div', { class: 'empty' }, 'Keine Spiele in diesem Zeitraum.'),
+      h('div', { class: 'duo' },
+        h('div', null, h('div', { class: 'caps' }, 'Playlists'),
+          s.playlists.length ? s.playlists.map(p => {
+            const name = plName(p.id, p.name);
+            const rest = p.games - p.wins - p.losses;
+            return h('div', { class: 'bar-row', title: `${name}: ${p.wins} Siege, ${p.losses} Niederlagen` + (rest ? `, ${rest} ohne Ergebnis` : '') },
+              h('span', { class: 'ell' }, name),
+              h('span', { class: 'split', style: { width: Math.round(100 * p.games / plMax) + '%' } },
+                [['w', p.wins], ['', p.losses], ['o', rest]].map(([c, v]) => v ? h('i', { class: c, style: { flex: v } }) : null)),
+              h('span', { class: 'r n4 num' }, `${p.games}, ${fmt.pct(p.wins, p.wins + p.losses)}`));
+          }) : h('div', { class: 'n4', style: { fontSize: '13px' } }, 'Keine Spiele.')),
+        h('div', null, h('div', { class: 'caps' }, 'Beste Maps, ab 3 Spielen'),
+          s.maps.length ? s.maps.map(m => {
+            const rate = fmt.pct(m.wins, m.wins + m.losses);
+            return h('div', { class: 'bar-row map', title: `${m.name}: ${m.wins} Siege, ${m.losses} Niederlagen` },
+              h('span', { class: 'ell' }, m.name),
+              h('span', { class: 'track rate' }, h('span', { class: 'me', style: { width: m.wins + m.losses ? rate : '0' } })),
+              h('span', { class: 'r n4 num' }, `${rate}, ${m.games}`));
+          }) : h('div', { class: 'n4', style: { fontSize: '13px' } }, 'Noch keine Map mit mindestens 3 Spielen.'))));
   }
 
-  function render() {
-    const s = data;
-    const decided = s.wins + s.losses;
-    const withOther = s.per_period.some(p => p.other > 0);
-    chartBox = h('div', { class: 'chart' });
-    const [periodBtn, periodTable] = tableToggle(() => h('table', { class: 'stats' },
-      h('thead', null, h('tr', null, ['Zeitraum', 'Siege', 'Niederlagen', 'ohne Ergebnis'].map(t => h('th', null, t)))),
-      h('tbody', null, s.per_period.map(p => h('tr', null, h('td', null, p.label), h('td', { class: 'num' }, p.wins), h('td', { class: 'num' }, p.losses), h('td', { class: 'num' }, p.other))))));
-    const maxGames = Math.max(1, ...s.playlists.map(p => p.games));
-    fill(content, 
-      h('div', { class: 'grid grid-4' },
-        h('div', { class: 'card kpi' }, h('div', { class: 's' }, 'Spiele'), h('div', { class: 'v' }, s.games), h('div', { class: 's' }, 'mit dir im Zeitraum')),
-        h('div', { class: 'card kpi' }, h('div', { class: 's' }, 'Siegquote'), h('div', { class: 'v' }, fmt.pct(s.wins, decided)), h('div', { class: 's' }, `aus ${decided} entschiedenen Spielen`)),
-        h('div', { class: 'card kpi' }, h('div', { class: 's' }, 'Bilanz'), h('div', { class: 'v' }, `${s.wins}–${s.losses}`), h('div', { class: 's' }, 'Siege – Niederlagen')),
-        h('div', { class: 'card kpi' }, h('div', { class: 's' }, 'Uploads'), h('div', { class: 'v' }, s.uploads), h('div', { class: 's' }, 'von deinem Konto'))),
-      h('div', { class: 'card' },
-        h('div', { class: 'card-head' }, h('h2', null, s.unit === 'day' ? 'Spiele pro Tag' : 'Spiele pro Monat'), legend(withOther)),
-        s.games ? chartBox : h('div', { class: 'empty' }, 'Keine Spiele in diesem Zeitraum.'),
-        h('div', { class: 'row' }, periodBtn), periodTable),
-      h('div', { class: 'grid grid-2' },
-        h('div', { class: 'card' },
-          h('div', { class: 'card-head' }, h('h2', null, 'Nach Playlist'), h('span', { class: 'muted' }, 'Spiele · Siegquote')),
-          legend(s.playlists.some(p => p.games > p.wins + p.losses)),
-          s.playlists.length ? h('div', null, s.playlists.map(p => {
-            const other = p.games - p.wins - p.losses;
-            const row = h('div', { class: 'hbar', 'aria-label': `${p.name}: ${p.games} Spiele, ${p.wins} Siege, ${p.losses} Niederlagen` },
-              h('span', { class: 'ellipsis' }, p.name),
-              h('div', { class: 'track', style: { width: Math.max(4, 100 * p.games / maxGames) + '%', gap: '2px', background: 'none' } },
-                [['wins', 'win'], ['losses', 'loss']].map(([k, cls]) => p[k] ? h('i', { style: { flex: p[k], background: `var(--${cls})`, borderRadius: '2px' } }) : null),
-                other ? h('i', { style: { flex: other, background: 'var(--none)', borderRadius: '2px' } }) : null),
-              h('span', { class: 'num muted nowrap' }, `${p.games} · ${fmt.pct(p.wins, p.wins + p.losses)}`));
-            return hoverable(row, p.name, [[p.games, 'Spiele'], [p.wins, 'Siege', 'win'], [p.losses, 'Niederlagen', 'loss'], [fmt.pct(p.wins, p.wins + p.losses), 'Siegquote']]);
-          })) : h('div', { class: 'empty' }, 'Keine Spiele.')),
-        h('div', { class: 'card' },
-          h('div', { class: 'card-head' }, h('h2', null, 'Beste Maps'), h('span', { class: 'muted' }, 'Siegquote, ab 3 Spielen')),
-          s.maps.length ? h('div', null, s.maps.map(m => {
-            const r = rate(m);
-            const row = h('div', { class: 'hbar', 'aria-label': `${m.name}: Siegquote ${Math.round(100 * r)} Prozent aus ${m.games} Spielen` },
-              h('span', { class: 'ellipsis' }, m.name),
-              h('div', { class: 'track' }, h('i', { style: { width: Math.max(2, 100 * r) + '%', background: 'var(--win)', borderRadius: '0 4px 4px 0' } })),
-              h('span', { class: 'num muted nowrap' }, `${Math.round(100 * r)} % · ${m.games}`));
-            return hoverable(row, m.name, [[Math.round(100 * r) + ' %', 'Siegquote'], [m.wins, 'Siege', 'win'], [m.losses, 'Niederlagen', 'loss'], [m.games, 'Spiele']]);
-          })) : h('div', { class: 'empty' }, 'Noch keine Map mit mindestens 3 Spielen.'))));
-    if (s.games) requestAnimationFrame(() => columnChart(chartBox, s.per_period, s.unit));
-  }
+  const load = async () => render(await api('/api/stats?days=' + days));
 
-  async function load() {
-    content.style.opacity = data ? '.55' : '';
-    data = await api('/api/stats?days=' + days);
-    content.style.opacity = '';
-    render();
-  }
-
-  renderSeg();
   await load();
-  const onResize = debounce(() => { if (data?.games && chartBox?.isConnected) columnChart(chartBox, data.per_period, data.unit); }, 150);
-  addEventListener('resize', onResize);
   ctx.on('replays', debounce(load, 800));
-  return { refresh: load, destroy: () => { removeEventListener('resize', onResize); hideTip(); } };
+  return { refresh: load };
 }
