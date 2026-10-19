@@ -247,7 +247,8 @@ func points(poly [][2]float64) string {
 
 func hex(c color.NRGBA) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
-// svg is the normal icon for the interface, drawn from the same numbers.
+// svg is the logo of the interface, drawn from the same numbers: only the
+// arrows, without the tile, in the tile's gradient and cropped to them.
 func svg(s state) string {
 	l := large
 	x1, y1 := l.ringPoint(l.ringFrom)
@@ -256,16 +257,23 @@ func svg(s state) string {
 	if l.ringTo-l.ringFrom > 180 {
 		arc = 1
 	}
-	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient></defs>
-<rect width="256" height="256" rx="%g" fill="url(#g)"/>
-<g fill="%s">
-<path d="M%.1f %.1fA%g %g 0 %d 1 %.1f %.1f" fill="none" stroke="%s" stroke-width="%g" stroke-linecap="round"/>
+	// the arc runs past the left, right and bottom, the head is the highest
+	out := l.ringR + l.ringW/2
+	top := l.ringY + out
+	for _, p := range l.head() {
+		top = math.Min(top, p[1])
+	}
+	side := 2*out + 4
+	vx, vy := l.ringX-side/2, (top+l.ringY+out)/2-side/2
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="%.1f %.1f %g %g">
+<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="%.1f" x2="0" y2="%.1f"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient></defs>
+<g fill="url(#g)">
+<path d="M%.1f %.1fA%g %g 0 %d 1 %.1f %.1f" fill="none" stroke="url(#g)" stroke-width="%g" stroke-linecap="round"/>
 <polygon points="%s"/>
 <polygon points="%s"/>
 </g>
 </svg>
-`, hex(s.top), hex(s.bottom), l.tileRadius, hex(glyph), x1, y1, l.ringR, l.ringR, arc, x2, y2, hex(glyph), l.ringW, points(l.head()), points(l.arrow))
+`, vx, vy, side, side, top, l.ringY+out, hex(s.top), hex(s.bottom), x1, y1, l.ringR, l.ringR, arc, x2, y2, l.ringW, points(l.head()), points(l.arrow))
 }
 
 func write(path string, data []byte) {
