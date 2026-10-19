@@ -158,6 +158,8 @@ Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vorde
 | Regeln | Regeln nach Playlist und Mitspielern, direkt in der Liste bearbeiten, Reihenfolge per Ziehen; die erste passende gewinnt. Vorschläge für neue Regeln aus deinem Einordnen |
 | Einstellungen | alles aus der Einrichtung; jede Änderung gilt sofort. Was ein System nicht kann (etwa Hotkeys auf dem Mac), blendet die Oberfläche aus und sagt warum |
 
+Das Overlay unter Windows lässt sich an freien Stellen der Symbolleiste links oder der Statusleiste unten mit der Maus verschieben. Es öffnet sich danach wieder an dieser Stelle, bis das Programm neu startet.
+
 Replays, die Mitspieler hochgeladen haben, lassen sich nur ansehen und ins Spiel laden. Verschieben, Sichtbarkeit und Löschen erlaubt die ballchasing-API nur beim eigenen Upload.
 
 Aktionen, die auf ballchasing warten (Verschieben, Sichtbarkeit, Löschen, Ordner anlegen, Abgleich, Token prüfen, Statistiken und Replays laden), zeigen unten rechts eine Info-Karte, bis ballchasing geantwortet hat.
