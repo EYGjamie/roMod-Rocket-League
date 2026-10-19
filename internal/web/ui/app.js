@@ -118,6 +118,14 @@ function setupOverlay() {
     if (e.target.matches('input, textarea') && e.target.value) return; // first Esc clears the field
     window.closeOverlay();
   });
+  // the window has no title bar: free spots in the side and status bar move it
+  const drag = e => {
+    if (e.button !== 0 || e.target.closest('a, button')) return;
+    e.preventDefault();
+    window.dragOverlay();
+  };
+  document.getElementById('nav').addEventListener('mousedown', drag);
+  document.getElementById('foot').addEventListener('mousedown', drag);
 }
 
 function setupDrop() {
