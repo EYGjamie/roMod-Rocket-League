@@ -80,6 +80,7 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("GET /api/stats-api", a.apiStatsAPI)
 	mux.HandleFunc("POST /api/stats-api/enable", a.apiEnableStatsAPI)
 	mux.HandleFunc("POST /api/show", a.apiShow)
+	mux.HandleFunc("POST /api/update", a.apiUpdate)
 	mux.HandleFunc("GET /api/identities", a.apiIdentities)
 	mux.HandleFunc("PUT /api/identities", a.apiSetIdentities)
 
@@ -164,6 +165,7 @@ func ok(w http.ResponseWriter) { writeJSON(w, http.StatusOK, map[string]bool{"ok
 
 type stateView struct {
 	Version   string       `json:"version"`
+	Update    string       `json:"update,omitempty"` // tag of a newer release
 	Platform  Platform     `json:"platform"`
 	SetupDone bool         `json:"setup_done"`
 	Account   accountView  `json:"account"`
@@ -245,8 +247,12 @@ func (a *App) apiState(w http.ResponseWriter, r *http.Request) {
 	if qs := a.queue.Status(); qs.BadToken {
 		acc.Status = "invalid"
 	}
+	var update string
+	if rel := a.release.Load(); rel != nil {
+		update = rel.Tag
+	}
 	writeJSON(w, http.StatusOK, stateView{
-		Version: Version, Platform: a.desk.Platform(), SetupDone: a.config().SetupDone, Account: acc, StatsAPI: a.statsAPI.Load(),
+		Version: Version, Update: update, Platform: a.desk.Platform(), SetupDone: a.config().SetupDone, Account: acc, StatsAPI: a.statsAPI.Load(),
 		InMatch: a.tracker.InMatch(), Paused: pausedView{watch, mark}, Queue: a.queueSummary(),
 		Inbox: len(a.inboxReplays()), RuleTips: len(tips), Syncing: a.Syncing(), Me: me,
 	})

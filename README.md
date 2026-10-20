@@ -56,7 +56,7 @@ cd auto-replay-upload
 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/auto-replay-upload.exe ./cmd/auto-replay-upload
 ```
 
-`-H windowsgui` sorgt dafür, dass kein Konsolenfenster aufgeht. Symbol, Programmname und Manifest kommen aus den `rsrc_windows_*.syso` in `cmd/auto-replay-upload`, die `go build` von selbst einbindet. Die fertige `dist/auto-replay-upload.exe` in einen eigenen Ordner kopieren, zum Beispiel `C:\Tools\auto-replay-upload\`. Dort legt das Tool auch Konfiguration, Datenbank und Log ab. Der Autostart zeigt auf genau diese exe; verschiebst du den Ordner, einfach einmal von dort starten.
+`-H windowsgui` sorgt dafür, dass kein Konsolenfenster aufgeht. Symbol, Programmname und Manifest kommen aus den `rsrc_windows_*.syso` in `cmd/auto-replay-upload`, die `go build` von selbst einbindet. Die fertige `dist/auto-replay-upload.exe` in einen eigenen Ordner kopieren, zum Beispiel `C:\Tools\auto-replay-upload\`. Konfiguration, Datenbank und Log legt das Tool dort im Unterordner `data\` ab. Der Autostart zeigt auf genau diese exe; verschiebst du den Ordner, einfach einmal von dort starten.
 
 **macOS**
 
@@ -75,7 +75,7 @@ install -D dist/auto-replay-upload ~/.local/bin/auto-replay-upload
 
 Dann `auto-replay-upload` starten (aus dem Terminal oder per Alt+F2). Konfiguration, Datenbank und Log liegen unter `~/.config/auto-replay-upload/`.
 
-Windows- und Linux-Programme lassen sich auf jedem System bauen, etwa mit `GOOS=windows GOARCH=amd64` vor dem `go build`. Das Mac-Programm mit Symbol in der Menüleiste braucht cgo und wird deshalb auf einem Mac gebaut; ohne cgo (`CGO_ENABLED=0 GOOS=darwin`) läuft es ohne Symbol. Fertige Programme für alle drei Systeme baut auch die CI bei jedem Push (Actions → Artefakte).
+Windows- und Linux-Programme lassen sich auf jedem System bauen, etwa mit `GOOS=windows GOARCH=amd64` vor dem `go build`. Das Mac-Programm mit Symbol in der Menüleiste braucht cgo und wird deshalb auf einem Mac gebaut; ohne cgo (`CGO_ENABLED=0 GOOS=darwin`) läuft es ohne Symbol. Fertige Programme für alle drei Systeme baut auch die CI bei jedem Push (Actions → Artefakte), zu jedem Tag `v…` außerdem ein Release.
 
 ### 2. Stats API aktivieren
 
@@ -114,6 +114,16 @@ Das Programm starten. Beim ersten Start öffnet sich der Assistent (unter Window
 „Später einrichten“ geht auf jeder Seite. Alles lässt sich danach in den Einstellungen ändern.
 
 Wer von einer älteren Version umsteigt, behält `config.json` und den Upload-Status: Die alte `uploaded.json` wird beim ersten Start in die Datenbank übernommen (danach `uploaded.json.bak`).
+
+### Updates
+
+Programme aus einem Release (nicht selbst gebaute) suchen beim Start und dann alle 12 Stunden auf GitHub nach einer neuen Version. Gibt es eine, fragt die Oberfläche einmal nach; „Jetzt aktualisieren“ lädt sie herunter, ersetzt das Programm und startet es neu. Wer „Abbrechen“ wählt, findet das Angebot weiter unten in der Statusleiste. Unter macOS öffnet der Knopf die Release-Seite, die neue App wird von Hand ersetzt.
+
+Ein Release entsteht mit einem Tag:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
 
 ## Benutzung
 
@@ -180,11 +190,11 @@ Unter Linux geht die Datei in den Papierkorb nach freedesktop.org-Standard, aus 
 
 Alles lässt sich in der Oberfläche einstellen. Gespeichert wird in `config.json`:
 
-- **Windows:** neben der exe
+- **Windows:** im Ordner `data\` neben der exe
 - **macOS:** `~/Library/Application Support/auto-replay-upload/config.json`
 - **Linux:** `~/.config/auto-replay-upload/config.json` (genauer `$XDG_CONFIG_HOME`)
 
-Liegt unter macOS oder Linux eine `config.json` neben dem Programm, gilt diese (alles in einem Ordner). Mit `-config` lässt sich jeder andere Ort wählen:
+Liegt eine `config.json` direkt neben dem Programm, gilt diese, so behalten ältere Windows-Installationen ihren Ort. Wer aufräumen will: beenden, `config.json`, `auto-replay-upload.db*`, `auto-replay-upload.log*` und `manuell\` nach `data\` verschieben, neu starten. Mit `-config` lässt sich jeder andere Ort wählen:
 
 ```bash
 auto-replay-upload -config ~/rl/config.json

@@ -32,18 +32,21 @@ jobs:
 
       - run: go test ./...
 
+      # A tag v1.2.3 builds version 1.2.3; the in-app updater looks for the
+      # files by name: auto-replay-upload-<GOOS>-<GOARCH>[.exe].
       - name: Build
         shell: bash
         run: |
+          export VERSION=dev
+          [ "$GITHUB_REF_TYPE" = tag ] && VERSION=${GITHUB_REF_NAME#v}
           case "$RUNNER_OS" in
             Windows)
-              go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/auto-replay-upload.exe ./cmd/auto-replay-upload ;;
+              go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=$VERSION" -o dist/auto-replay-upload-windows-amd64.exe ./cmd/auto-replay-upload ;;
             macOS)
               scripts/macos-app.sh
               tar -czf dist/auto-replay-upload-macos.tar.gz -C dist auto-replay-upload.app ;;
             Linux)
-              go build -trimpath -ldflags "-s -w" -o dist/auto-replay-upload ./cmd/auto-replay-upload
-              tar -czf dist/auto-replay-upload-linux.tar.gz -C dist auto-replay-upload ;;
+              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/auto-replay-upload-linux-amd64 ./cmd/auto-replay-upload ;;
           esac
 
       - uses: actions/upload-artifact@v4
@@ -52,3 +55,19 @@ jobs:
           path: |
             dist/*.exe
             dist/*.tar.gz
+            dist/auto-replay-upload-linux-*
+
+  release:
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -54,6 +55,7 @@ func main() {
 	var statsINIs pathList
 	flag.Var(&statsINIs, "enable-stats-api", "schaltet in dieser ini des Spiels die Stats API ein und beendet sich (die Oberfläche ruft das mit Administratorrechten auf)")
 	statsPort := flag.Int("stats-api-port", game.DefaultStatsPort, "Port für -enable-stats-api")
+	updated := flag.Bool("updated", false, "nach einem Update gestartet: wartet, bis die alte Version beendet ist")
 	flag.Parse()
 	if len(statsINIs) > 0 {
 		os.Exit(enableStatsAPI(statsINIs, *statsPort))
@@ -64,13 +66,19 @@ func main() {
 	}
 	instance := filepath.Join(filepath.Dir(cfgPath), "instance.json")
 
-	if !desktop.SingleInstance(cfgPath) {
+	single := desktop.SingleInstance(cfgPath)
+	for i := 0; !single && *updated && i < 50; i++ { // the old version is still closing
+		time.Sleep(200 * time.Millisecond)
+		single = desktop.SingleInstance(cfgPath)
+	}
+	if !single {
 		// started again by hand: bring up the interface of the running copy
 		if !*atSignIn && showRunning(instance) != nil {
 			desktop.ShowInfo(strings.TrimSpace("auto-replay-upload läuft schon. " + desktop.TrayHint))
 		}
 		return
 	}
+	os.Remove(exe + ".old") // left by an update
 	logPath := filepath.Join(filepath.Dir(cfgPath), "auto-replay-upload.log")
 	if err := openLog(logPath); err != nil {
 		fatal("Log-Datei: %v", err)
@@ -83,8 +91,18 @@ func main() {
 	if err != nil {
 		log.Printf("Hotkeys nicht verfügbar: %v", err)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	restart := func() {
+		if err := exec.Command(exe, "-updated", "-config", cfgPath).Start(); err != nil {
+			log.Printf("Neustart nach Update: %v", err)
+			return
+		}
+		stop()
+	}
+
 	d := &desk{pop: popup.New(), hotkeys: hk != nil, saveKey: game.SaveKeySupported()}
-	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: logPath, Desktop: d, Hotkeys: hk, ShowUI: !*atSignIn})
+	a, err := app.New(app.Options{ConfigPath: cfgPath, LogPath: logPath, Desktop: d, Hotkeys: hk, ShowUI: !*atSignIn, Restart: restart})
 	if err != nil {
 		desktop.Edit(cfgPath)
 		fatal("Start fehlgeschlagen: %v", err)
@@ -111,8 +129,6 @@ func main() {
 		log.Printf("Startet %s (in den Einstellungen abschaltbar)", desktop.SignIn)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go a.Run(ctx)
 
 	tray := desktop.Tray{
@@ -133,17 +149,17 @@ func main() {
 	log.Print("Beendet")
 }
 
-// defaultConfig is config.json next to the program on Windows, so the
+// defaultConfig is data\config.json next to the program on Windows, so the
 // whole installation is one folder. Elsewhere programs usually live in a
 // folder the user cannot write to, so it is the user's configuration
-// folder, unless a config.json lies next to the program.
+// folder. A config.json right next to the program wins everywhere.
 func defaultConfig(exe string) string {
 	beside := filepath.Join(filepath.Dir(exe), "config.json")
-	if runtime.GOOS == "windows" {
-		return beside
-	}
 	if _, err := os.Stat(beside); err == nil {
-		return beside
+		return beside // ponytail: older Windows installations keep their files, moving them is up to the user
+	}
+	if runtime.GOOS == "windows" {
+		return filepath.Join(filepath.Dir(exe), "data", "config.json")
 	}
 	dir, err := os.UserConfigDir() // ~/Library/Application Support, ~/.config
 	if err != nil {

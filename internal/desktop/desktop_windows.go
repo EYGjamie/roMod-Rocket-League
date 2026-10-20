@@ -48,9 +48,14 @@ func SetDPIAware() {
 // the same configuration file.
 func SingleInstance(configPath string) bool {
 	name := `Local\` + instanceKey(configPath)
-	// The handle stays open until the process exits.
-	_, err := windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(name))
-	return err != windows.ERROR_ALREADY_EXISTS
+	// Our handle stays open until the process exits. One to another
+	// copy's mutex is closed, so the mutex goes away with that copy.
+	h, err := windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(name))
+	if err == windows.ERROR_ALREADY_EXISTS {
+		windows.CloseHandle(h)
+		return false
+	}
+	return true
 }
 
 func ShowError(msg string) { messageBox(msg, mbIconError) }

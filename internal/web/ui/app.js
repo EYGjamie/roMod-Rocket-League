@@ -1,5 +1,5 @@
 // Interface core: routing, navigation, status bar and live updates.
-import { api, h, ico, fill, on, emit, debounce, eventsURL, uploadFiles, run, system, uploadQuota } from './lib.js';
+import { api, h, ico, fill, on, emit, debounce, eventsURL, uploadFiles, run, system, uploadQuota, busy, flash, confirmDialog } from './lib.js';
 import * as overview from './views/overview.js';
 import * as history from './views/history.js';
 import * as detail from './views/detail.js';
@@ -28,6 +28,23 @@ async function refreshState() {
   renderFoot();
   renderNav();
   emit('ui:state');
+  offerUpdate();
+}
+
+// offerUpdate asks once per new release; the status bar keeps the offer.
+let offered = '';
+async function offerUpdate() {
+  if (!state.update || state.update === offered || document.querySelector('.backdrop')) return;
+  offered = state.update;
+  if (await confirmDialog('Update verfügbar', `Version ${state.update} ist da, installiert ist v${state.version}. Danach startet das Programm neu.`, 'Jetzt aktualisieren')) installUpdate();
+}
+
+async function installUpdate() {
+  const done = busy('Update wird installiert', 'Danach startet das Programm neu …', 0);
+  const r = await run(() => api('/api/update', { method: 'POST' }));
+  done();
+  if (r?.opened) flash('Download-Seite geöffnet');
+  else if (r) flash('Update installiert, Neustart …');
 }
 const refreshStateSoon = debounce(refreshState, 200);
 
@@ -59,6 +76,7 @@ function renderFoot(lost) {
     problem ? h('a', { href: acc.status === 'none' ? '#/einrichtung' : '#/einstellungen' }, problem) : null,
     state.queue?.offline ? h('span', null, 'Uploads warten') : null,
     state.syncing ? h('span', null, 'Abgleich läuft …') : null,
+    state.update ? h('a', { class: 'upd', href: '#', onclick: e => { e.preventDefault(); installUpdate(); } }, 'Update auf ' + state.update) : null,
     h('button', { class: 'pause' + (any ? ' on' : ''), title: 'Pausieren oder fortsetzen', onclick: () => run(() => api('/api/pause', { method: 'POST', body: { watch: !any, mark: !any } })) },
       ico(any ? 'play' : 'pause', 13),
       h('span', null, (paused.watch && paused.mark ? 'Pausiert' : paused.watch ? 'Uploads pausiert' : paused.mark ? 'Auto-Speichern pausiert' : 'Läuft') + (system(state).hotkeys ? ', Strg+Alt+P' : ''))),

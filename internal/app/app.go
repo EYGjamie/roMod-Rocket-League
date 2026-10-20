@@ -95,6 +95,7 @@ type Options struct {
 	GameDirs    func() []string // the game's install folders, default game.GameDirs
 	GameRunning func() bool     // whether Rocket League runs, default game.RocketLeagueRunning
 	ShowUI      bool            // open the interface at start, not only after sign-in without start_minimized
+	Restart     func()          // starts the updated program and ends this one; nil opens the release page instead
 }
 
 type App struct {
@@ -124,7 +125,8 @@ type App struct {
 
 	statsAPI atomic.Bool
 	syncing  atomic.Bool
-	syncWake chan bool // true = full sync
+	release  atomic.Pointer[release] // newer release on GitHub, nil if none
+	syncWake chan bool               // true = full sync
 
 	ln    net.Listener
 	token string
@@ -302,6 +304,7 @@ func (a *App) Run(ctx context.Context) {
 	go a.detailLoop(ctx)
 	go a.housekeeping(ctx)
 	go a.autoEnableStatsAPI()
+	go a.watchUpdates(ctx)
 
 	if !a.config().SetupDone {
 		a.desk.ShowOverlay("einrichtung")
