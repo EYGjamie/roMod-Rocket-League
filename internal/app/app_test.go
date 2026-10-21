@@ -250,6 +250,8 @@ func TestDeleteAfterUploadAndQuickSortOff(t *testing.T) {
 	if _, err := os.Stat(manual); err != nil {
 		t.Error("a file picked by hand was deleted")
 	}
+	// the file is Done before the processed hook counts the upload
+	ta.waitFor("upload counted", func() bool { return ta.accountInfo().Uploads.Used == 2 })
 	if acc := ta.accountInfo(); acc.Tier != "regular" || acc.Uploads != (ballchasing.Usage{Used: 2, Max: 10}) {
 		t.Errorf("account after two uploads = %+v", acc)
 	}
