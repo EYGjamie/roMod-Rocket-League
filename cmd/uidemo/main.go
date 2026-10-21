@@ -17,10 +17,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/app"
-	"github.com/EYGjamie/romod/internal/ballchasing/ballchasingtest"
-	"github.com/EYGjamie/romod/internal/config"
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/app"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing/ballchasingtest"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 // cleanup collects what the fake wants to close; the fake expects a test.

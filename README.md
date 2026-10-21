@@ -48,8 +48,8 @@ Unter Wayland laufen Spiele mit Proton über XWayland. Hotkeys und Speichern-Tas
 ### 1. Programm bauen
 
 ```bash
-git clone https://github.com/EYGjamie/roMod.git
-cd roMod
+git clone https://github.com/EYGjamie/roMod-Rocket-League.git
+cd roMod-Rocket-League
 ```
 
 **Windows**

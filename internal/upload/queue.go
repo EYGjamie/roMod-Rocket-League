@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 // API is the part of the ballchasing client the queue needs.

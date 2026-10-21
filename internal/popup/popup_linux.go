@@ -16,7 +16,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
-	"github.com/EYGjamie/romod/internal/assets"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/assets"
 )
 
 const (

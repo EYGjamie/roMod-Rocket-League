@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 // Playlist is a ballchasing playlist ID with its display name.

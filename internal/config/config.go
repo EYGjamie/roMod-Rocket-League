@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/EYGjamie/romod/internal/game"
-	"github.com/EYGjamie/romod/internal/hotkey"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
 )
 
 type Config struct {

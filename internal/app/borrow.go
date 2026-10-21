@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 // borrowName is the file name of a replay downloaded for watching. The

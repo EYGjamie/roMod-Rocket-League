@@ -6,7 +6,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/EYGjamie/romod/internal/x11"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/x11"
 	"github.com/jezek/xgb/xproto"
 )
 

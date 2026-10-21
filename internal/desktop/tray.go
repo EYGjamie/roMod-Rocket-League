@@ -9,7 +9,7 @@ import (
 
 	"fyne.io/systray"
 
-	"github.com/EYGjamie/romod/internal/assets"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/assets"
 )
 
 // HasTray reports that the tool shows an icon.

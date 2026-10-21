@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
-	"github.com/EYGjamie/romod/internal/ballchasing/ballchasingtest"
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing/ballchasingtest"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 type env struct {

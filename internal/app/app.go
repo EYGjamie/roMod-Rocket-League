@@ -19,12 +19,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
-	"github.com/EYGjamie/romod/internal/config"
-	"github.com/EYGjamie/romod/internal/game"
-	"github.com/EYGjamie/romod/internal/hotkey"
-	"github.com/EYGjamie/romod/internal/store"
-	"github.com/EYGjamie/romod/internal/upload"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/upload"
 )
 
 // Desktop is what the app needs from the system side. Tests use a fake.

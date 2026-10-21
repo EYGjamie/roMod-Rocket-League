@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 func TestMatch(t *testing.T) {

@@ -30,12 +30,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/app"
-	"github.com/EYGjamie/romod/internal/desktop"
-	"github.com/EYGjamie/romod/internal/game"
-	"github.com/EYGjamie/romod/internal/hotkey"
-	"github.com/EYGjamie/romod/internal/overlay"
-	"github.com/EYGjamie/romod/internal/popup"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/app"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/desktop"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/overlay"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/popup"
 )
 
 // version is set at build time with -ldflags "-X main.version=…".

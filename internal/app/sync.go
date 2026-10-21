@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 // requestSync asks the sync loop for a run; full also re-reads all own

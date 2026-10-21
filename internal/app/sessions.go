@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/rules"
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/rules"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 const sessionGap = 30 * time.Minute

@@ -16,7 +16,7 @@ import (
 
 // releaseAPI answers with the newest release on GitHub; tests point it
 // elsewhere.
-var releaseAPI = "https://api.github.com/repos/EYGjamie/roMod/releases/latest"
+var releaseAPI = "https://api.github.com/repos/EYGjamie/roMod-Rocket-League/releases/latest"
 
 type release struct {
 	Tag    string `json:"tag_name"`

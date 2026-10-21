@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
-	"github.com/EYGjamie/romod/internal/hotkey"
-	"github.com/EYGjamie/romod/internal/rules"
-	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/rules"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
 // processed runs once ballchasing has processed an upload.

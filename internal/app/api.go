@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
-	"github.com/EYGjamie/romod/internal/config"
-	"github.com/EYGjamie/romod/internal/game"
-	"github.com/EYGjamie/romod/internal/rules"
-	"github.com/EYGjamie/romod/internal/store"
-	"github.com/EYGjamie/romod/internal/web"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/rules"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/web"
 )
 
 func (a *App) handler() http.Handler {

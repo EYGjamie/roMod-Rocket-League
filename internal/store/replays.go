@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
 )
 
 // Player is one player of a stored replay.

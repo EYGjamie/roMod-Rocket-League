@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
 )
 
 // Token is the only token the fake accepts.

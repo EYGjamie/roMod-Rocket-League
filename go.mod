@@ -1,4 +1,4 @@
-module github.com/EYGjamie/romod
+module github.com/EYGjamie/roMod-Rocket-League
 
 go 1.26.2
 
