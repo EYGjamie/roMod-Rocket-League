@@ -13,9 +13,9 @@ const (
 	runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 	// Task Manager and Settings switch entries off here without removing them.
 	approvedKey = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`
-	runValue    = "auto-replay-upload"
+	runValue    = "roMod"
 	// remembers whether the user turned autostart off in the menu
-	settingsKey   = `Software\auto-replay-upload`
+	settingsKey   = `Software\roMod`
 	settingsValue = "Autostart"
 )
 

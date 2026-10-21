@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/ballchasing"
 )
 
 // Player is one player of a stored replay.

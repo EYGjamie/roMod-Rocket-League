@@ -1,4 +1,4 @@
-// Command auto-replay-upload uploads Rocket League replays to ballchasing.com.
+// Command romod (roMod, Replay operations) uploads Rocket League replays to ballchasing.com.
 //
 // It listens to the game's official Stats API, holds the save-replay key
 // once per match so the replay is saved automatically at the end, uploads
@@ -13,9 +13,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -28,12 +30,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/app"
-	"github.com/EYGjamie/auto-replay-upload/internal/desktop"
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
-	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
-	"github.com/EYGjamie/auto-replay-upload/internal/overlay"
-	"github.com/EYGjamie/auto-replay-upload/internal/popup"
+	"github.com/EYGjamie/romod/internal/app"
+	"github.com/EYGjamie/romod/internal/desktop"
+	"github.com/EYGjamie/romod/internal/game"
+	"github.com/EYGjamie/romod/internal/hotkey"
+	"github.com/EYGjamie/romod/internal/overlay"
+	"github.com/EYGjamie/romod/internal/popup"
 )
 
 // version is set at build time with -ldflags "-X main.version=…".
@@ -74,12 +76,16 @@ func main() {
 	if !single {
 		// started again by hand: bring up the interface of the running copy
 		if !*atSignIn && showRunning(instance) != nil {
-			desktop.ShowInfo(strings.TrimSpace("auto-replay-upload läuft schon. " + desktop.TrayHint))
+			desktop.ShowInfo(strings.TrimSpace("roMod läuft schon. " + desktop.TrayHint))
 		}
 		return
 	}
 	os.Remove(exe + ".old") // left by an update
-	logPath := filepath.Join(filepath.Dir(cfgPath), "auto-replay-upload.log")
+	desktop.ForgetOldName()
+	if err := renameOldFiles(filepath.Dir(cfgPath)); err != nil {
+		fatal("Daten von auto-replay-upload übernehmen: %v", err)
+	}
+	logPath := filepath.Join(filepath.Dir(cfgPath), "romod.log")
 	if err := openLog(logPath); err != nil {
 		fatal("Log-Datei: %v", err)
 	}
@@ -165,7 +171,23 @@ func defaultConfig(exe string) string {
 	if err != nil {
 		return beside
 	}
-	return filepath.Join(dir, "auto-replay-upload", "config.json")
+	return filepath.Join(dir, "romod", "config.json")
+}
+
+// renameOldFiles gives the database and log of auto-replay-upload, as roMod
+// was called until October 2026, the new name. The database goes last, so
+// an interrupted rename is finished at the next start.
+func renameOldFiles(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, "romod.db")); err == nil {
+		return nil
+	}
+	for _, ext := range []string{".log", ".log.old", ".db-wal", ".db-shm", ".db"} {
+		err := os.Rename(filepath.Join(dir, "auto-replay-upload"+ext), filepath.Join(dir, "romod"+ext))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // desk connects the app to the overlay, popups, tray and the system.

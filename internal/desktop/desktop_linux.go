@@ -52,13 +52,13 @@ func dialog(isError bool, msg string) {
 		if isError {
 			kind = "--error"
 		}
-		cmd = exec.Command("zenity", kind, "--no-markup", "--title=auto-replay-upload", "--text="+msg)
+		cmd = exec.Command("zenity", kind, "--no-markup", "--title=roMod", "--text="+msg)
 	case installed("kdialog"):
 		kind := "--msgbox"
 		if isError {
 			kind = "--error"
 		}
-		cmd = exec.Command("kdialog", "--title", "auto-replay-upload", kind, msg)
+		cmd = exec.Command("kdialog", "--title", "roMod", kind, msg)
 	case installed("xmessage"):
 		cmd = exec.Command("xmessage", "-center", msg)
 	default:
@@ -162,7 +162,7 @@ func pickPortal(dir string) (paths []string, ok bool) {
 	conn.Signal(signals)
 
 	opts := map[string]dbus.Variant{
-		"handle_token": dbus.MakeVariant("auto_replay_upload_" + strconv.FormatInt(time.Now().UnixNano(), 36)),
+		"handle_token": dbus.MakeVariant("romod_" + strconv.FormatInt(time.Now().UnixNano(), 36)),
 		"multiple":     dbus.MakeVariant(true),
 		"filters":      dbus.MakeVariant([]fileFilter{globFilter("Rocket-League-Replays", "*.replay"), globFilter("Alle Dateien", "*")}),
 	}

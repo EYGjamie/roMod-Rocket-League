@@ -16,7 +16,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/assets"
+	"github.com/EYGjamie/romod/internal/assets"
 )
 
 const (
@@ -139,7 +139,7 @@ func (m *Manager) notify(summary, body string, buttons []button, hints map[strin
 		hints["image-data"] = dbus.MakeVariant(img)
 	}
 	var id uint32
-	err := conn.Object(busName, busPath).Call(busName+".Notify", 0, "auto-replay-upload", uint32(0), "", summary, body,
+	err := conn.Object(busName, busPath).Call(busName+".Notify", 0, "roMod", uint32(0), "", summary, body,
 		actions, hints, int32(timeout/time.Millisecond)).Store(&id)
 	if err != nil {
 		log.Printf("Benachrichtigung nicht gezeigt: %v", err)

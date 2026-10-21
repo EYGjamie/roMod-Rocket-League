@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 // requestSync asks the sync loop for a run; full also re-reads all own

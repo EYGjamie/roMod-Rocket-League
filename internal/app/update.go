@@ -16,7 +16,7 @@ import (
 
 // releaseAPI answers with the newest release on GitHub; tests point it
 // elsewhere.
-var releaseAPI = "https://api.github.com/repos/EYGjamie/auto-replay-upload/releases/latest"
+var releaseAPI = "https://api.github.com/repos/EYGjamie/roMod/releases/latest"
 
 type release struct {
 	Tag    string `json:"tag_name"`
@@ -30,7 +30,7 @@ type release struct {
 // asset is the download of the program for this system, "" if the release
 // has none (macOS: the app bundle is installed by hand).
 func (r *release) asset() string {
-	name := fmt.Sprintf("auto-replay-upload-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := fmt.Sprintf("romod-%s-%s", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}

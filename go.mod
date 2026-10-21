@@ -1,4 +1,4 @@
-module github.com/EYGjamie/auto-replay-upload
+module github.com/EYGjamie/romod
 
 go 1.26.2
 

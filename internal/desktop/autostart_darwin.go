@@ -12,6 +12,9 @@ import (
 // Autostart is a launch agent that macOS loads at sign-in. macOS lists it
 // under System Settings → General → Login Items.
 
+// oldAutostartName is the entry of auto-replay-upload, see ForgetOldName.
+const oldAutostartName = "com.github.eygjamie.auto-replay-upload.plist"
+
 func autostartFile() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

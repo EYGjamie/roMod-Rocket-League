@@ -30,7 +30,7 @@ func TestLiveWindows(t *testing.T) {
 	m.Toast(Toast{Title: "Replay hochgeladen", Body: "Testbenachrichtigung", Actions: []Action{{Label: "OK"}}})
 	time.Sleep(800 * time.Millisecond)
 
-	class := windows.StringToUTF16Ptr("AutoReplayUploadPopup")
+	class := windows.StringToUTF16Ptr("RoModPopup")
 	pid := windows.GetCurrentProcessId()
 	var found []uintptr
 	for hwnd := uintptr(0); ; {

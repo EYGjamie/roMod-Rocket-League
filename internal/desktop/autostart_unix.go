@@ -19,7 +19,7 @@ func choiceFile() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "auto-replay-upload", "autostart"), nil
+	return filepath.Join(dir, "romod", "autostart"), nil
 }
 
 func autostartChoice() string {

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/x11"
+	"github.com/EYGjamie/romod/internal/x11"
 	"github.com/jezek/xgb/xproto"
 )
 

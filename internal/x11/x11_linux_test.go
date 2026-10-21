@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/x11/x11test"
+	"github.com/EYGjamie/romod/internal/x11/x11test"
 	"github.com/jezek/xgb"
 	"github.com/jezek/xgb/xproto"
 )

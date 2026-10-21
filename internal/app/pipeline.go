@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
-	"github.com/EYGjamie/auto-replay-upload/internal/rules"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/hotkey"
+	"github.com/EYGjamie/romod/internal/rules"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 // processed runs once ballchasing has processed an upload.

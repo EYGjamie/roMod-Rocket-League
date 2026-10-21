@@ -63,7 +63,7 @@ func ShowError(msg string) { messageBox(msg, mbIconError) }
 func ShowInfo(msg string) { messageBox(msg, mbIconInformation) }
 
 func messageBox(msg string, icon uint32) {
-	windows.MessageBox(0, windows.StringToUTF16Ptr(msg), windows.StringToUTF16Ptr("auto-replay-upload"), icon|mbSetForeground|mbTopmost)
+	windows.MessageBox(0, windows.StringToUTF16Ptr(msg), windows.StringToUTF16Ptr("roMod"), icon|mbSetForeground|mbTopmost)
 }
 
 // Edit opens a text file in Notepad.

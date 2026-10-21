@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/config"
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
-	"github.com/EYGjamie/auto-replay-upload/internal/rules"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
-	"github.com/EYGjamie/auto-replay-upload/internal/web"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/config"
+	"github.com/EYGjamie/romod/internal/game"
+	"github.com/EYGjamie/romod/internal/rules"
+	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/romod/internal/web"
 )
 
 func (a *App) handler() http.Handler {

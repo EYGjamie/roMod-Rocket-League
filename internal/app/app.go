@@ -19,12 +19,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/config"
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
-	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
-	"github.com/EYGjamie/auto-replay-upload/internal/upload"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/config"
+	"github.com/EYGjamie/romod/internal/game"
+	"github.com/EYGjamie/romod/internal/hotkey"
+	"github.com/EYGjamie/romod/internal/store"
+	"github.com/EYGjamie/romod/internal/upload"
 )
 
 // Desktop is what the app needs from the system side. Tests use a fake.
@@ -164,7 +164,7 @@ func New(opts Options) (*App, error) {
 		a.account = "offline" // until the first ping
 	}
 
-	if a.store, err = store.Open(filepath.Join(a.dataDir, "auto-replay-upload.db")); err != nil {
+	if a.store, err = store.Open(filepath.Join(a.dataDir, "romod.db")); err != nil {
 		return nil, err
 	}
 	if err := a.importLegacy(); err != nil {

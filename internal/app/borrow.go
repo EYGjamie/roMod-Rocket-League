@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 // borrowName is the file name of a replay downloaded for watching. The

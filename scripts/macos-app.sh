@@ -1,17 +1,17 @@
 #!/bin/sh
-# Builds dist/auto-replay-upload.app: a menu bar app without a Dock icon.
+# Builds dist/roMod.app: a menu bar app without a Dock icon.
 # The menu bar icon needs cgo, so this runs on a Mac with the Xcode Command
 # Line Tools (xcode-select --install). VERSION sets the version shown.
 set -eu
 cd "$(dirname "$0")/.."
 
 version=${VERSION:-dev}
-app=dist/auto-replay-upload.app
+app=dist/roMod.app
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X main.version=$version" \
-	-o "$app/Contents/MacOS/auto-replay-upload" ./cmd/auto-replay-upload
+	-o "$app/Contents/MacOS/romod" ./cmd/romod
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -19,11 +19,11 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>auto-replay-upload</string>
+	<string>roMod</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.github.eygjamie.auto-replay-upload</string>
+	<string>com.github.eygjamie.romod</string>
 	<key>CFBundleExecutable</key>
-	<string>auto-replay-upload</string>
+	<string>romod</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

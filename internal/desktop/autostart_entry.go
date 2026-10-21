@@ -9,7 +9,7 @@ import (
 // The autostart entries of macOS and Linux, kept apart from the system code
 // so they can be tested anywhere.
 
-const launchAgent = "com.github.eygjamie.auto-replay-upload"
+const launchAgent = "com.github.eygjamie.romod"
 
 // agentPlist describes the launch agent: start args once at sign-in in the
 // graphical session, without restarting it after "Beenden".
@@ -49,7 +49,7 @@ func entrySwitchedOff(entry string) bool {
 func desktopEntry(args []string, off bool) string {
 	s := "[Desktop Entry]\n" +
 		"Type=Application\n" +
-		"Name=auto-replay-upload\n" +
+		"Name=roMod\n" +
 		"Comment=Lädt Rocket-League-Replays auf ballchasing.com hoch\n" +
 		"Exec=" + execLine(args) + "\n" +
 		"Terminal=false\n"

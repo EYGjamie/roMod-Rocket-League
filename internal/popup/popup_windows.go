@@ -219,7 +219,7 @@ func New() *Manager {
 func (m *Manager) loop(ready chan struct{}) {
 	runtime.LockOSThread()
 	m.thread = windows.GetCurrentThreadId()
-	m.class = windows.StringToUTF16Ptr("AutoReplayUploadPopup")
+	m.class = windows.StringToUTF16Ptr("RoModPopup")
 	cursor, _, _ := procLoadCursor.Call(0, idcArrow)
 	wc := wndClassEx{wndProc: windows.NewCallback(wndProc), cursor: cursor, className: m.class}
 	wc.size = uint32(unsafe.Sizeof(wc))

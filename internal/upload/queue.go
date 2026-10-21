@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 // API is the part of the ballchasing client the queue needs.

@@ -1,4 +1,4 @@
-# Konzept: auto-replay-upload 2
+# Konzept: roMod
 
 Stand: 18.10.2026, umgesetzt. Grundlage sind die Funktionen aus den Mockups, ergänzt um fehlende Abläufe, die Antworten aus der Abstimmung und das, was die ballchasing-API tatsächlich hergibt.
 
@@ -412,9 +412,9 @@ Alle fünf Etappen sind umgesetzt, die Bedienung beschreibt die [README](../READ
 
 | Paket | Aufgabe |
 |---|---|
-| `cmd/auto-replay-upload` | Start: Log, eine Instanz pro Konfiguration, Autostart, Tray, Verdrahtung mit dem System |
+| `cmd/romod` | Start: Log, eine Instanz pro Konfiguration, Autostart, Tray, Verdrahtung mit dem System |
 | `internal/app` | Kern: Ablauf nach dem Upload, Abgleich, Sessions, Statistik, „Ins Spiel laden“, JSON-API und Live-Events der Oberfläche |
-| `internal/store` | SQLite-Datenbank `auto-replay-upload.db` (reines Go), Übernahme von `uploaded.json` |
+| `internal/store` | SQLite-Datenbank `romod.db` (reines Go), Übernahme von `uploaded.json` |
 | `internal/upload` | Replay-Ordner beobachten, Warteschlange mit Zuständen und Neuversuchen |
 | `internal/rules` | Standard-Regeln, Regel-Abgleich, Ordner- und Regel-Vorschläge |
 | `internal/ballchasing` | API-Client mit Drosselung je Endpunkt; `ballchasingtest` ist ein nachgebauter Server für Tests |
@@ -471,7 +471,7 @@ Rocket League läuft dort nur unter Proton oder Wine. Das Tool läuft trotzdem v
 | Schnell-Einordnen | entfällt, Regeln ordnen direkt ein | Benachrichtigung mit bis zu drei Knöpfen (zwei Alternativen und Eingang), dazu Strg+Alt+1–4 |
 | Dateiauswahl, Meldungen | AppleScript (`choose file`, `display alert`) | Datei-Portal von xdg-desktop-portal, sonst zenity oder kdialog |
 | Token | in der `config.json` mit Rechten nur für den Benutzer | wie macOS |
-| Konfiguration | `~/Library/Application Support/auto-replay-upload` | `~/.config/auto-replay-upload` |
+| Konfiguration | `~/Library/Application Support/romod` | `~/.config/romod` |
 
 Unter Wayland laufen Proton-Spiele über XWayland. Hotkeys und Speichern-Taste wirken dann, solange ein X11-Fenster im Vordergrund ist, also beim Spielen. Strg+Alt+F1 bis F12 schaltet unter Linux die Konsole um und taugt nicht als Hotkey.
 

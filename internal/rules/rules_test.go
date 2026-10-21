@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 func TestMatch(t *testing.T) {

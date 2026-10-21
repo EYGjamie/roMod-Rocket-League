@@ -49,7 +49,7 @@ func (statusWriter) Write(p []byte) (int, error) {
 // tooltip fits the name and status line into the 127 characters a tray
 // tooltip can hold.
 func tooltip(status string) string {
-	s := "auto-replay-upload"
+	s := "roMod"
 	if status != "" {
 		s += "\n" + status
 	}
@@ -66,5 +66,5 @@ func instanceKey(configPath string) string {
 		configPath = strings.ToLower(configPath)
 	}
 	sum := sha1.Sum([]byte(configPath))
-	return "auto-replay-upload-" + hex.EncodeToString(sum[:6])
+	return "romod-" + hex.EncodeToString(sum[:6])
 }

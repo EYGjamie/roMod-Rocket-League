@@ -9,7 +9,7 @@ import (
 
 	"fyne.io/systray"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/assets"
+	"github.com/EYGjamie/romod/internal/assets"
 )
 
 // HasTray reports that the tool shows an icon.

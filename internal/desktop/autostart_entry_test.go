@@ -13,8 +13,8 @@ func TestExecLineQuotes(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"/opt/aru/auto-replay-upload"}, `/opt/aru/auto-replay-upload`},
-		{[]string{"/home/a b/auto-replay-upload", "-config", "/home/a b/c.json"}, `"/home/a b/auto-replay-upload" -config "/home/a b/c.json"`},
+		{[]string{"/opt/romod/romod"}, `/opt/romod/romod`},
+		{[]string{"/home/a b/romod", "-config", "/home/a b/c.json"}, `"/home/a b/romod" -config "/home/a b/c.json"`},
 		{[]string{"/x/100%", `/x/"q"$y`}, `/x/100%% "/x/\\"q\\"\\$y"`},
 		{[]string{`/x\y`}, `"/x\\\\y"`},
 	}
@@ -39,7 +39,7 @@ func TestDesktopEntryOnAndOff(t *testing.T) {
 }
 
 func TestAgentPlistIsValid(t *testing.T) {
-	data := agentPlist([]string{"/Applications/A & B.app/Contents/MacOS/auto-replay-upload", "-config", "/Users/x/<c>.json"})
+	data := agentPlist([]string{"/Applications/A & B.app/Contents/MacOS/romod", "-config", "/Users/x/<c>.json"})
 	var strs []string
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = true
@@ -62,7 +62,7 @@ func TestAgentPlistIsValid(t *testing.T) {
 			inString = false
 		}
 	}
-	want := []string{launchAgent, "/Applications/A & B.app/Contents/MacOS/auto-replay-upload", "-config", "/Users/x/<c>.json", "Aqua", "Interactive"}
+	want := []string{launchAgent, "/Applications/A & B.app/Contents/MacOS/romod", "-config", "/Users/x/<c>.json", "Aqua", "Interactive"}
 	if strings.Join(strs, "|") != strings.Join(want, "|") {
 		t.Errorf("strings = %q, want %q", strs, want)
 	}

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 // Playlist is a ballchasing playlist ID with its display name.

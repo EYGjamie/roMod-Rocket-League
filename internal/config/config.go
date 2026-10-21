@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
-	"github.com/EYGjamie/auto-replay-upload/internal/hotkey"
+	"github.com/EYGjamie/romod/internal/game"
+	"github.com/EYGjamie/romod/internal/hotkey"
 )
 
 type Config struct {

@@ -8,10 +8,10 @@
     "#1": {
       "0409": {
         "identity": {
-          "name": "auto-replay-upload",
+          "name": "roMod",
           "version": ""
         },
-        "description": "auto-replay-upload",
+        "description": "roMod",
         "minimum-os": "win10",
         "execution-level": "as invoker",
         "ui-access": false,
@@ -38,10 +38,10 @@
         },
         "info": {
           "0409": {
-            "FileDescription": "auto-replay-upload",
-            "InternalName": "auto-replay-upload",
-            "OriginalFilename": "auto-replay-upload.exe",
-            "ProductName": "auto-replay-upload"
+            "FileDescription": "roMod",
+            "InternalName": "roMod",
+            "OriginalFilename": "romod.exe",
+            "ProductName": "roMod"
           }
         }
       }

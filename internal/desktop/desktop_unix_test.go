@@ -27,7 +27,7 @@ func TestAutostartFollowsChoice(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	args := []string{"/opt/aru/auto-replay-upload"}
+	args := []string{"/opt/romod/romod"}
 
 	if err := SyncAutostart(args); err != nil || !Autostart() {
 		t.Fatalf("first start: Autostart() = %v, err %v", Autostart(), err)

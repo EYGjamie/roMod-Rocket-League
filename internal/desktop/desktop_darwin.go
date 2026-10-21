@@ -29,7 +29,7 @@ func ShowInfo(msg string) { alert("informational", msg) }
 func alert(kind, msg string) {
 	osascript(`on run argv
 	activate
-	display alert "auto-replay-upload" message (item 1 of argv) as `+kind+` buttons {"OK"} default button "OK"
+	display alert "roMod" message (item 1 of argv) as `+kind+` buttons {"OK"} default button "OK"
 end run`, msg)
 }
 

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/rules"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/rules"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 const sessionGap = 30 * time.Minute

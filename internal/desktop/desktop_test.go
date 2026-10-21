@@ -7,7 +7,7 @@ import (
 )
 
 func TestTooltipFits(t *testing.T) {
-	if got := tooltip(""); got != "auto-replay-upload" {
+	if got := tooltip(""); got != "roMod" {
 		t.Errorf("tooltip(\"\") = %q", got)
 	}
 	long := tooltip("20:23:05 " + strings.Repeat("ä", 200))

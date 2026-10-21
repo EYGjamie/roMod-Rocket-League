@@ -12,12 +12,15 @@ import (
 // Autostart uses the freedesktop.org autostart folder, which GNOME, KDE,
 // Xfce and the other desktops read at sign-in.
 
+// oldAutostartName is the entry of auto-replay-upload, see ForgetOldName.
+const oldAutostartName = "auto-replay-upload.desktop"
+
 func autostartFile() (string, error) {
 	dir, err := os.UserConfigDir() // $XDG_CONFIG_HOME or ~/.config
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "autostart", "auto-replay-upload.desktop"), nil
+	return filepath.Join(dir, "autostart", "romod.desktop"), nil
 }
 
 // Autostart reports whether the desktop starts the tool at sign-in.

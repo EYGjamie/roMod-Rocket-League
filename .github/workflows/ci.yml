@@ -33,7 +33,7 @@ jobs:
       - run: go test ./...
 
       # A tag v1.2.3 builds version 1.2.3; the in-app updater looks for the
-      # files by name: auto-replay-upload-<GOOS>-<GOARCH>[.exe].
+      # files by name: romod-<GOOS>-<GOARCH>[.exe].
       - name: Build
         shell: bash
         run: |
@@ -41,21 +41,21 @@ jobs:
           [ "$GITHUB_REF_TYPE" = tag ] && VERSION=${GITHUB_REF_NAME#v}
           case "$RUNNER_OS" in
             Windows)
-              go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=$VERSION" -o dist/auto-replay-upload-windows-amd64.exe ./cmd/auto-replay-upload ;;
+              go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=$VERSION" -o dist/romod-windows-amd64.exe ./cmd/romod ;;
             macOS)
               scripts/macos-app.sh
-              tar -czf dist/auto-replay-upload-macos.tar.gz -C dist auto-replay-upload.app ;;
+              tar -czf dist/romod-macos.tar.gz -C dist roMod.app ;;
             Linux)
-              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/auto-replay-upload-linux-amd64 ./cmd/auto-replay-upload ;;
+              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/romod-linux-amd64 ./cmd/romod ;;
           esac
 
       - uses: actions/upload-artifact@v4
         with:
-          name: auto-replay-upload-${{ runner.os }}
+          name: romod-${{ runner.os }}
           path: |
             dist/*.exe
             dist/*.tar.gz
-            dist/auto-replay-upload-linux-*
+            dist/romod-linux-*
 
   release:
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')

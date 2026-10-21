@@ -1,4 +1,6 @@
-# auto-replay-upload
+# roMod
+
+**roMod** steht für *Replay operations*.
 
 Lädt Rocket-League-Replays automatisch auf [ballchasing.com](https://ballchasing.com) hoch, sortiert sie in Ordner und zeigt Verlauf und Statistik, auch mit Easy Anti-Cheat und ohne BakkesMod. Läuft unter **Windows, macOS und Linux**.
 
@@ -46,17 +48,17 @@ Unter Wayland laufen Spiele mit Proton über XWayland. Hotkeys und Speichern-Tas
 ### 1. Programm bauen
 
 ```bash
-git clone https://github.com/EYGjamie/auto-replay-upload.git
-cd auto-replay-upload
+git clone https://github.com/EYGjamie/roMod.git
+cd roMod
 ```
 
 **Windows**
 
 ```bash
-go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/auto-replay-upload.exe ./cmd/auto-replay-upload
+go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/romod.exe ./cmd/romod
 ```
 
-`-H windowsgui` sorgt dafür, dass kein Konsolenfenster aufgeht. Symbol, Programmname und Manifest kommen aus den `rsrc_windows_*.syso` in `cmd/auto-replay-upload`, die `go build` von selbst einbindet. Die fertige `dist/auto-replay-upload.exe` in einen eigenen Ordner kopieren, zum Beispiel `C:\Tools\auto-replay-upload\`. Konfiguration, Datenbank und Log legt das Tool dort im Unterordner `data\` ab. Der Autostart zeigt auf genau diese exe; verschiebst du den Ordner, einfach einmal von dort starten.
+`-H windowsgui` sorgt dafür, dass kein Konsolenfenster aufgeht. Symbol, Programmname und Manifest kommen aus den `rsrc_windows_*.syso` in `cmd/romod`, die `go build` von selbst einbindet. Die fertige `dist/romod.exe` in einen eigenen Ordner kopieren, zum Beispiel `C:\Tools\romod\`. Konfiguration, Datenbank und Log legt das Tool dort im Unterordner `data\` ab. Der Autostart zeigt auf genau diese exe; verschiebst du den Ordner, einfach einmal von dort starten.
 
 **macOS**
 
@@ -64,16 +66,16 @@ go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/auto-replay-upload.exe
 scripts/macos-app.sh
 ```
 
-Das Skript baut `dist/auto-replay-upload.app`, eine Menüleisten-App ohne Symbol im Dock. Nach `/Programme` (oder `~/Programme`) ziehen und per Doppelklick starten. Konfiguration, Datenbank und Log liegen unter `~/Library/Application Support/auto-replay-upload/`.
+Das Skript baut `dist/roMod.app`, eine Menüleisten-App ohne Symbol im Dock. Nach `/Programme` (oder `~/Programme`) ziehen und per Doppelklick starten. Konfiguration, Datenbank und Log liegen unter `~/Library/Application Support/romod/`.
 
 **Linux**
 
 ```bash
-go build -trimpath -ldflags "-s -w" -o dist/auto-replay-upload ./cmd/auto-replay-upload
-install -D dist/auto-replay-upload ~/.local/bin/auto-replay-upload
+go build -trimpath -ldflags "-s -w" -o dist/romod ./cmd/romod
+install -D dist/romod ~/.local/bin/romod
 ```
 
-Dann `auto-replay-upload` starten (aus dem Terminal oder per Alt+F2). Konfiguration, Datenbank und Log liegen unter `~/.config/auto-replay-upload/`.
+Dann `romod` starten (aus dem Terminal oder per Alt+F2). Konfiguration, Datenbank und Log liegen unter `~/.config/romod/`.
 
 Windows- und Linux-Programme lassen sich auf jedem System bauen, etwa mit `GOOS=windows GOARCH=amd64` vor dem `go build`. Das Mac-Programm mit Symbol in der Menüleiste braucht cgo und wird deshalb auf einem Mac gebaut; ohne cgo (`CGO_ENABLED=0 GOOS=darwin`) läuft es ohne Symbol. Fertige Programme für alle drei Systeme baut auch die CI bei jedem Push (Actions → Artefakte), zu jedem Tag `v…` außerdem ein Release.
 
@@ -113,7 +115,7 @@ Das Programm starten. Beim ersten Start öffnet sich der Assistent (unter Window
 
 „Später einrichten“ geht auf jeder Seite. Alles lässt sich danach in den Einstellungen ändern.
 
-Wer von einer älteren Version umsteigt, behält `config.json` und den Upload-Status: Die alte `uploaded.json` wird beim ersten Start in die Datenbank übernommen (danach `uploaded.json.bak`).
+Wer von einer älteren Version umsteigt, behält `config.json` und den Upload-Status: Die alte `uploaded.json` wird beim ersten Start in die Datenbank übernommen (danach `uploaded.json.bak`). Bis Oktober 2026 hieß das Programm auto-replay-upload; beim ersten Start übernimmt roMod dessen Datenbank, Log, Konfigurationsordner und Autostart.
 
 ### Updates
 
@@ -191,13 +193,13 @@ Unter Linux geht die Datei in den Papierkorb nach freedesktop.org-Standard, aus 
 Alles lässt sich in der Oberfläche einstellen. Gespeichert wird in `config.json`:
 
 - **Windows:** im Ordner `data\` neben der exe
-- **macOS:** `~/Library/Application Support/auto-replay-upload/config.json`
-- **Linux:** `~/.config/auto-replay-upload/config.json` (genauer `$XDG_CONFIG_HOME`)
+- **macOS:** `~/Library/Application Support/romod/config.json`
+- **Linux:** `~/.config/romod/config.json` (genauer `$XDG_CONFIG_HOME`)
 
-Liegt eine `config.json` direkt neben dem Programm, gilt diese, so behalten ältere Windows-Installationen ihren Ort. Wer aufräumen will: beenden, `config.json`, `auto-replay-upload.db*`, `auto-replay-upload.log*` und `manuell\` nach `data\` verschieben, neu starten. Mit `-config` lässt sich jeder andere Ort wählen:
+Liegt eine `config.json` direkt neben dem Programm, gilt diese, so behalten ältere Windows-Installationen ihren Ort. Wer aufräumen will: beenden, `config.json`, `romod.db*`, `romod.log*` und `manuell\` nach `data\` verschieben, neu starten. Mit `-config` lässt sich jeder andere Ort wählen:
 
 ```bash
-auto-replay-upload -config ~/rl/config.json
+romod -config ~/rl/config.json
 ```
 
 | Feld | Standard | Bedeutung |
@@ -225,16 +227,16 @@ Hotkeys bestehen aus `Ctrl`/`Strg`, `Alt`, `Shift`, `Win` (unter Linux auch `Sup
 
 Weitere Dateien neben der `config.json`:
 
-- `auto-replay-upload.db`: Datenbank mit Upload-Status, Replays, Ordnern, Regeln und Entscheidungen
-- `auto-replay-upload.log`: das Log (über 1 MB wird es beim Start zu `.log.old`), in der Oberfläche unter Einstellungen → Log anzeigen
+- `romod.db`: Datenbank mit Upload-Status, Replays, Ordnern, Regeln und Entscheidungen
+- `romod.log`: das Log (über 1 MB wird es beim Start zu `.log.old`), in der Oberfläche unter Einstellungen → Log anzeigen
 - `manuell/`: Kopien von Replays, die über die Oberfläche hochgeladen wurden
 - `instance.json`: solange das Tool läuft, die Adresse seiner Oberfläche, damit ein zweiter Start sie öffnen kann
 
 Außerdem je System:
 
-- **Windows:** `%LOCALAPPDATA%\auto-replay-upload\WebView2` (Browser-Cache des Overlays), der Autostart-Eintrag unter `HKEY_CURRENT_USER\…\CurrentVersion\Run` und die gemerkte Autostart-Wahl unter `HKEY_CURRENT_USER\Software\auto-replay-upload`
-- **macOS:** der Autostart als `~/Library/LaunchAgents/com.github.eygjamie.auto-replay-upload.plist` (in den Systemeinstellungen unter Allgemein → Anmeldeobjekte), die gemerkte Wahl in `~/Library/Application Support/auto-replay-upload/autostart`
-- **Linux:** der Autostart als `~/.config/autostart/auto-replay-upload.desktop`, die gemerkte Wahl in `~/.config/auto-replay-upload/autostart`
+- **Windows:** `%LOCALAPPDATA%\romod\WebView2` (Browser-Cache des Overlays), der Autostart-Eintrag unter `HKEY_CURRENT_USER\…\CurrentVersion\Run` und die gemerkte Autostart-Wahl unter `HKEY_CURRENT_USER\Software\romod`
+- **macOS:** der Autostart als `~/Library/LaunchAgents/com.github.eygjamie.romod.plist` (in den Systemeinstellungen unter Allgemein → Anmeldeobjekte), die gemerkte Wahl in `~/Library/Application Support/romod/autostart`
+- **Linux:** der Autostart als `~/.config/autostart/romod.desktop`, die gemerkte Wahl in `~/.config/romod/autostart`
 
 Wer den Autostart in den Einstellungen des Systems entfernt oder abschaltet, behält das so; einschalten geht wieder in der Oberfläche.
 
@@ -289,7 +291,7 @@ Meldungen stehen im Log, die letzte auch im Tooltip des Symbols. Fehler, wegen d
 ## Projektstruktur
 
 ```text
-cmd/auto-replay-upload/   Einstiegspunkt: Log, eine Instanz, Autostart, Tray, Verdrahtung mit dem System
+cmd/romod/   Einstiegspunkt: Log, eine Instanz, Autostart, Tray, Verdrahtung mit dem System
   winres/                 Symbol, Programmname und Manifest der exe (go-winres)
 cmd/uidemo/               die Oberfläche mit erfundenen Daten gegen einen Fake von ballchasing
 docs/konzept.md           Konzept mit allen Abläufen und Entscheidungen
@@ -340,7 +342,7 @@ Das Symbol zeichnet `internal/assets/gen.go` (nur Standardbibliothek): Tray-Symb
 
 ```bash
 go generate ./internal/assets
-go generate ./cmd/auto-replay-upload
+go generate ./cmd/romod
 ```
 
 Unter Linux starten die Tests einen eigenen X-Server (Xvfb) und einen eigenen D-Bus, falls installiert, und prüfen damit Hotkeys, Speichern-Taste und Benachrichtigungen echt; ohne sie werden diese Tests übersprungen. Die CI (`.github/workflows/ci.yml`) testet und baut auf Windows, macOS und Linux.

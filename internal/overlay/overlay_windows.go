@@ -129,7 +129,7 @@ func (o *Overlay) run() {
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
 		WindowOptions: webview2.WindowOptions{
-			Title:  "auto-replay-upload",
+			Title:  "roMod",
 			Width:  uint(w),
 			Height: uint(h),
 			Center: true,
@@ -215,7 +215,7 @@ func webviewDataPath() string {
 	if err != nil {
 		return "" // library default
 	}
-	return filepath.Join(dir, "auto-replay-upload", "WebView2")
+	return filepath.Join(dir, "romod", "WebView2")
 }
 
 // OpenBrowser opens a URL in the default browser.

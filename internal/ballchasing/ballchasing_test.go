@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing/ballchasingtest"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/ballchasing/ballchasingtest"
 )
 
 func writeReplay(t *testing.T, name string) string {

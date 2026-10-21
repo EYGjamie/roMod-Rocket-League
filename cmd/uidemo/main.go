@@ -17,10 +17,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/app"
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing/ballchasingtest"
-	"github.com/EYGjamie/auto-replay-upload/internal/config"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/app"
+	"github.com/EYGjamie/romod/internal/ballchasing/ballchasingtest"
+	"github.com/EYGjamie/romod/internal/config"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 // cleanup collects what the fake wants to close; the fake expects a test.
@@ -151,7 +151,7 @@ func main() {
 // playlists, so the rules page and the quick-sort flow have something, and
 // two failed uploads.
 func addRules(dir, threes string) {
-	st, err := store.Open(filepath.Join(dir, "auto-replay-upload.db"))
+	st, err := store.Open(filepath.Join(dir, "romod.db"))
 	if err != nil {
 		return
 	}

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
+	"github.com/EYGjamie/romod/internal/game"
 )
 
 // The Stats API is off in a fresh installation of the game. The setup and

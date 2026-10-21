@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/ballchasing"
 )
 
 // Token is the only token the fake accepts.

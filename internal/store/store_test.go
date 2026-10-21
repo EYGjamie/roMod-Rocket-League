@@ -9,7 +9,7 @@ import (
 
 func open(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "Ordner mit Leerzeichen", "auto-replay-upload.db"))
+	s, err := Open(filepath.Join(t.TempDir(), "Ordner mit Leerzeichen", "romod.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

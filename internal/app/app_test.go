@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing"
-	"github.com/EYGjamie/auto-replay-upload/internal/ballchasing/ballchasingtest"
-	"github.com/EYGjamie/auto-replay-upload/internal/config"
-	"github.com/EYGjamie/auto-replay-upload/internal/game"
-	"github.com/EYGjamie/auto-replay-upload/internal/rules"
-	"github.com/EYGjamie/auto-replay-upload/internal/store"
+	"github.com/EYGjamie/romod/internal/ballchasing"
+	"github.com/EYGjamie/romod/internal/ballchasing/ballchasingtest"
+	"github.com/EYGjamie/romod/internal/config"
+	"github.com/EYGjamie/romod/internal/game"
+	"github.com/EYGjamie/romod/internal/rules"
+	"github.com/EYGjamie/romod/internal/store"
 )
 
 type fakeDesk struct {
@@ -495,7 +495,7 @@ func TestGuard(t *testing.T) {
 	resp, _ = http.Get(ta.srv + "/")
 	page, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(string(page), "auto-replay-upload") || resp.Header.Get("Content-Security-Policy") == "" {
+	if resp.StatusCode != 200 || !strings.Contains(string(page), "roMod") || resp.Header.Get("Content-Security-Policy") == "" {
 		t.Errorf("index: %d", resp.StatusCode)
 	}
 	var st stateView
