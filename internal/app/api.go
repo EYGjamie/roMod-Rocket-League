@@ -20,6 +20,7 @@ import (
 	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/rules"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/web"
@@ -172,6 +173,7 @@ type stateView struct {
 	StatsAPI  bool         `json:"stats_api"`
 	InMatch   bool         `json:"in_match"`
 	Paused    pausedView   `json:"paused"`
+	PauseKey  string       `json:"pause_hotkey"` // as shown, "" if none
 	Queue     queueSummary `json:"queue"`
 	Inbox     int          `json:"inbox"`
 	RuleTips  int          `json:"rule_tips"`
@@ -253,7 +255,7 @@ func (a *App) apiState(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, stateView{
 		Version: Version, Update: update, Platform: a.desk.Platform(), SetupDone: a.config().SetupDone, Account: acc, StatsAPI: a.statsAPI.Load(),
-		InMatch: a.tracker.InMatch(), Paused: pausedView{watch, mark}, Queue: a.queueSummary(),
+		InMatch: a.tracker.InMatch(), Paused: pausedView{watch, mark}, PauseKey: hotkey.Label(a.config().PauseHotkey), Queue: a.queueSummary(),
 		Inbox: len(a.inboxReplays()), RuleTips: len(tips), Syncing: a.Syncing(), Me: me,
 	})
 }

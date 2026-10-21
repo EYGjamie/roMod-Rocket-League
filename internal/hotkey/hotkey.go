@@ -59,5 +59,11 @@ func Parse(s string) (Hotkey, error) {
 	return hk, nil
 }
 
+// Label writes a combination as the interface shows it: Strg and Umschalt
+// instead of Ctrl and Shift.
+func Label(s string) string {
+	return strings.NewReplacer("Ctrl", "Strg", "Shift", "Umschalt").Replace(s)
+}
+
 // IsZero reports whether hk is no hotkey at all.
 func (hk Hotkey) IsZero() bool { return hk.vk == 0 }

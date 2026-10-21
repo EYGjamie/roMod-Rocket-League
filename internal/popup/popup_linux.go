@@ -159,7 +159,7 @@ func (m *Manager) close(id uint32) {
 
 // ShowQuickSort shows the prompt with the alternatives as buttons; pick
 // receives 1–4 for a click. Notifications show at most three buttons, so
-// with three alternatives the third one is left to Ctrl+Alt+3.
+// with three alternatives the third one is left to its hotkey.
 func (m *Manager) ShowQuickSort(q Quick, pick func(int)) {
 	var buttons []button
 	for i, label := range q.Options {

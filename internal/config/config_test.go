@@ -75,6 +75,8 @@ func TestValidate(t *testing.T) {
 		"countdown":    func(c *Config) { c.QuickSortSeconds = 1 },
 		"hotkey":       func(c *Config) { c.PauseHotkey = "Ctrl+Nix" },
 		"same hotkeys": func(c *Config) { c.PauseHotkey = c.GUIHotkey },
+		"same combo":   func(c *Config) { c.QuickSortHotkeys[2] = "strg+alt+b" },
+		"quick hotkey": func(c *Config) { c.QuickSortHotkeys[0] = "Ctrl+Alt+Ä" },
 	} {
 		c := Default()
 		mutate(&c)

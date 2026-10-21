@@ -581,11 +581,15 @@ func (m *Manager) layout(hdc uintptr, w *window, now time.Time, draw bool) int32
 			if draw && w.hot == idx {
 				roundRect(hdc, row, s(8), colChip, colChip)
 			}
-			chip := rect{inner.left, y + s(3), inner.left + s(78), y + s(23)}
+			key := q.Keys[i]
+			if key == "" {
+				key = strconv.Itoa(choice)
+			}
+			chip := rect{inner.left, y + s(3), inner.left + s(96), y + s(23)}
 			if draw {
 				roundRect(hdc, chip, s(6), colChipHot, colChipHot)
 			}
-			put("Strg+Alt+"+strconv.Itoa(choice), chip, 85, true, colText, dtSingleLine|dtCenter|dtVCenter)
+			put(key, rect{chip.left + s(4), chip.top, chip.right - s(4), chip.bottom}, 85, true, colText, dtSingleLine|dtCenter|dtVCenter|dtEndEllipsis)
 			put(label, rect{chip.right + s(10), y, inner.right, y + s(26)}, 100, false, colText, dtSingleLine|dtVCenter|dtEndEllipsis)
 			y += s(28)
 		}

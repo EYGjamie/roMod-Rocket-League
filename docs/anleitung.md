@@ -135,9 +135,9 @@ Unter Windows öffnet ein **Linksklick** das Overlay und ein **Rechtsklick** das
 ### Nach jedem Match
 
 1. Das Spiel speichert das Replay (dank der vorgemerkten Speichern-Taste), das Tool lädt es hoch und wartet, bis ballchasing es verarbeitet hat.
-2. Passt eine Regel, erscheint das **Schnell-Einordnen**: Zielordner, Countdown (Standard 10 s) und bis zu drei Alternativen. **Strg+Alt+1–3** wählt eine Alternative, **Strg+Alt+4** schickt das Replay in den Eingang; läuft der Countdown ab, gilt der Regel-Ordner.
+2. Passt eine Regel, erscheint das **Schnell-Einordnen**: Zielordner, Countdown (Standard 10 s) und bis zu drei Alternativen. **Strg+Alt+1–3** wählt eine Alternative, **Strg+Alt+4** schickt das Replay in den Eingang (alle vier Tasten lassen sich unter Einstellungen → Hotkeys ändern); läuft der Countdown ab, gilt der Regel-Ordner.
    - Windows: ein kleines Fenster oben rechts über dem Spiel, das dem Spiel nie den Fokus nimmt.
-   - Linux: eine Benachrichtigung mit Knöpfen. Benachrichtigungen zeigen höchstens drei Knöpfe; bei drei Alternativen bleibt die dritte bei Strg+Alt+3.
+   - Linux: eine Benachrichtigung mit Knöpfen. Benachrichtigungen zeigen höchstens drei Knöpfe; bei drei Alternativen bleibt die dritte bei ihrem Hotkey (Standard Strg+Alt+3).
    - macOS: Mitteilungen haben keine Knöpfe, die Regel ordnet deshalb sofort ein.
 3. Ohne passende Regel landet das Replay im **Eingang**.
 4. Eine kurze **Benachrichtigung** sagt, wohin es ging. Benachrichtigungen werden zurückgehalten, solange ein Match läuft. Nach 30 Minuten ohne Spiel (oder wenn Rocket League geschlossen wird) gibt es eine Zusammenfassung der Session.
@@ -204,6 +204,7 @@ romod -config ~/rl/config.json
 | `mark_hold_ms` | `1200` | wie lange die Taste gehalten wird (100 bis 5000) |
 | `gui_hotkey` | `Ctrl+Alt+B` | Overlay (oder die Oberfläche) öffnen; leer = kein Hotkey |
 | `pause_hotkey` | `Ctrl+Alt+P` | pausieren und fortsetzen |
+| `quick_sort_hotkeys` | `["Ctrl+Alt+1", …, "Ctrl+Alt+4"]` | Schnell-Einordnen: Alternativen 1–3 und Eingang; leer = kein Hotkey |
 | `notify_uploaded`, `notify_failed`, `notify_session` | `true` | Benachrichtigungen |
 | `quick_sort` | `true` | Schnell-Einordnen nach dem Upload; aus = Regeln ordnen ohne Rückfrage ein |
 | `quick_sort_seconds` | `10` | Countdown (3 bis 60) |
@@ -246,7 +247,7 @@ Meldungen stehen im Log, die letzte auch im Tooltip des Symbols. Fehler, wegen d
 | „läuft schon“ | Es läuft bereits eine Instanz mit derselben Konfiguration, etwa aus dem Autostart, und ihre Oberfläche ließ sich nicht öffnen. Über das Symbol öffnen oder das Programm dort beenden. |
 | Konsolenfenster beim Start (Windows) | Die exe wurde ohne `-H windowsgui` gebaut. Das Tool schließt das Fenster dann sofort selbst, ganz verschwindet es nur mit dem Build-Befehl aus der [Installation](#1-programm-bauen). |
 | Kein Replay-Ordner gefunden (macOS, Linux) | Das Spiel hat noch kein Replay gespeichert, oder es liegt in einem unbekannten Präfix. Den Ordner `TAGame/Demos` in den Einstellungen hinzufügen. |
-| Schnell-Einordnen oder Overlay nicht über dem Spiel (Windows) | Rocket League auf „Randloses Fenster“ stellen. Die Tasten Strg+Alt+1–4 funktionieren auch im Vollbild. |
+| Schnell-Einordnen oder Overlay nicht über dem Spiel (Windows) | Rocket League auf „Randloses Fenster“ stellen. Die Schnell-Einordnen-Hotkeys (Standard Strg+Alt+1–4) funktionieren auch im Vollbild. |
 | Hotkey funktioniert nicht | Ein anderes Programm nutzt die Kombination. In den Einstellungen eine andere wählen. Unter Linux wechselt Strg+Alt+F1 bis F12 die Konsole und taugt nicht als Hotkey. |
 | Hotkeys oder Speichern-Taste wirken nicht (Linux) | Sie brauchen X11 oder XWayland. Unter Wayland wirken sie nur, solange ein X11-Fenster wie das Spiel im Vordergrund ist. |
 | Keine Benachrichtigungen (macOS) | Sie kommen über AppleScript und erscheinen als „Skripteditor“. In den Systemeinstellungen unter Mitteilungen für „Skripteditor“ erlauben. |

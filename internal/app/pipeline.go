@@ -380,19 +380,26 @@ func (q *quickSorter) showNext() {
 	q.active = &p
 	q.seq++
 	seq := q.seq
-	seconds := q.a.config().QuickSortSeconds
+	cfg := q.a.config()
+	seconds := cfg.QuickSortSeconds
 
 	view := QuickSort{Title: q.a.summary(p.replay), Target: p.target.Name, Seconds: seconds}
 	for i, o := range p.options {
 		view.Options[i] = o.Name
 	}
 	view.Options[3] = "Eingang"
+	hk := q.a.opts.Hotkeys
+	if hk != nil {
+		for i, key := range cfg.QuickSortHotkeys {
+			view.Keys[i] = hotkey.Label(key)
+		}
+	}
 	q.a.desk.ShowQuickSort(view, func(choice int) { q.pick(seq, choice) })
-	if hk := q.a.opts.Hotkeys; hk != nil {
-		for i := 1; i <= 4; i++ {
-			choice := i
-			key, _ := hotkey.Parse(fmt.Sprintf("Ctrl+Alt+%d", i))
-			hk.Set(fmt.Sprintf("quick%d", i), key, func() { q.pick(seq, choice) })
+	if hk != nil {
+		for i, s := range cfg.QuickSortHotkeys {
+			choice := i + 1
+			key, _ := hotkey.Parse(s)
+			hk.Set(fmt.Sprintf("quick%d", choice), key, func() { q.pick(seq, choice) })
 		}
 	}
 	q.timer = time.AfterFunc(time.Duration(seconds)*time.Second, func() { q.pick(seq, 0) })

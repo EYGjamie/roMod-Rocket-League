@@ -64,7 +64,8 @@ type Platform struct {
 type QuickSort struct {
 	Title   string    // e.g. "2s Ranked · DFH Stadium · Sieg 3:1"
 	Target  string    // folder the rule chose
-	Options [4]string // labels for Ctrl+Alt+1–4, "" if unused
+	Options [4]string // labels of the choices 1–4, "" if unused
+	Keys    [4]string // their hotkeys as shown, "" if none
 	Seconds int
 }
 

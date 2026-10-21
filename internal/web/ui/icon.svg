@@ -1,8 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="38.0 44.3 180 180">
-<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="48.6" x2="0" y2="220.0"><stop offset="0" stop-color="#a99ef0"/><stop offset="1" stop-color="#5f51b3"/></linearGradient></defs>
-<g fill="url(#g)">
-<path d="M180.2 74.0A78 78 0 1 1 70.0 79.8" fill="none" stroke="url(#g)" stroke-width="20" stroke-linecap="round"/>
-<polygon points="152.0,48.6 198.3,54.0 162.1,94.1"/>
-<polygon points="128.0,64.0 170.0,110.0 139.0,110.0 139.0,186.0 117.0,186.0 117.0,110.0 86.0,110.0"/>
-</g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2.0 0.0 252 252">
+<defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="14.0" x2="0" y2="238.0"><stop offset="0" stop-color="#a99ef0"/><stop offset="1" stop-color="#5f51b3"/></linearGradient></defs>
+<polygon points="128.0,40.0 226.0,212.0 30.0,212.0" fill="url(#g)" stroke="url(#g)" stroke-width="52" stroke-linejoin="round"/>
+<polygon points="128.0,188.0 168.0,148.0 140.0,148.0 140.0,96.0 116.0,96.0 116.0,148.0 88.0,148.0" fill="#fbfaff"/>
+<path d="M96 208H160" stroke="#fbfaff" stroke-width="16" stroke-linecap="round"/>
 </svg>

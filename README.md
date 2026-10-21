@@ -20,7 +20,7 @@ roMod löst das, **ohne ins Spiel einzugreifen**: Es nutzt nur die offizielle [S
 1. **Match erkennen:** roMod hört der Stats API des Spiels zu und weiß, wann ein Match läuft.
 2. **Replay vormerken:** Kurz nach dem ersten Anstoß drückt roMod einmal die Speichern-Taste. Das Spiel legt das Replay am Ende dann von selbst ab. Wichtig: Dass es funktioniert dürft ihr nicht direkt ins Freeplay gehen. Ihr müsst einmal aktiv den Dialog bestätigen.
 3. **Hochladen:** Neue Replays gehen sofort an ballchasing, auf Wunsch wandert die Datei danach in den Papierkorb eures Pcs, heißt euer Speicher bleibt Leer :D
-4. **Einsortieren:** Deine Regeln (nach Playlist und Mitspielern) wählen den Ordner. Ein kleiner Hinweis zeigt das Ziel mit Countdown, mit Strg+Alt+1–4 nimmst du eine Alternative.
+4. **Einsortieren:** Deine Regeln (nach Playlist und Mitspielern) wählen den Ordner. Ein kleiner Hinweis zeigt das Ziel mit Countdown, mit Strg+Alt+1–4 (in den Einstellungen änderbar) nimmst du eine Alternative.
 
 ## Was drin ist
 

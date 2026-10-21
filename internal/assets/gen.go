@@ -1,8 +1,8 @@
 //go:build ignore
 
-// gen draws the tool's icon, a replay arrow around an upload arrow on a
-// violet tile, and writes every file made from it: the PNG and ICO files of
-// the tray in all three states and the SVG of the interface. Run it with
+// gen draws the tool's icon, a download arrow on a violet triangle with
+// rounded corners, and writes every file made from it: the PNG and ICO files
+// of the tray in all three states and the SVG of the interface. Run it with
 // go generate in this folder.
 package main
 
@@ -21,33 +21,29 @@ import (
 
 // look is the drawing in a 256×256 box.
 type look struct {
-	tileRadius   float64
-	ringX, ringY float64
-	ringR, ringW float64 // middle and width of the stroke
-	// degrees, y down: the arc runs clockwise over the bottom from the head
-	// end (up and right) to the tail end (up and left)
-	ringFrom, ringTo  float64
-	headLen, headHalf float64      // how far the replay arrow's head reaches past the arc, half its width
-	arrow             [][2]float64 // the upload arrow, clockwise from the tip
+	corners [][2]float64  // the triangle before its corners are rounded
+	radius  float64       // rounding, the triangle grows by it on every side
+	arrow   [][2]float64  // the download arrow, clockwise from the tip
+	bar     [2][2]float64 // ends of the line under the arrow
+	barW    float64       // its width, with round ends
+	// the red dot after failed uploads and the gap cut around it
+	badgeX, badgeY, badgeR, badgeGap float64
 }
 
 var (
 	// large is for 32 pixels and more and the interface.
-	large = look{56, 128, 132, 78, 20, -48, 222, 38, 27,
-		[][2]float64{{128, 64}, {170, 110}, {139, 110}, {139, 186}, {117, 186}, {117, 110}, {86, 110}}}
+	large = look{[][2]float64{{128, 40}, {226, 212}, {30, 212}}, 26,
+		[][2]float64{{128, 188}, {168, 148}, {140, 148}, {140, 96}, {116, 96}, {116, 148}, {88, 148}},
+		[2][2]float64{{96, 208}, {160, 208}}, 16, 212, 52, 38, 14}
 	// small has strokes of whole pixels at 16 pixels, for the tray.
-	small = look{48, 128, 128, 80, 32, -50, 220, 42, 38,
-		[][2]float64{{128, 60}, {168, 108}, {144, 108}, {144, 180}, {112, 180}, {112, 108}, {88, 108}}}
-)
-
-const (
-	badgeX, badgeY, badgeR = 208.0, 48.0, 40.0
-	badgeGap               = 14.0
+	small = look{[][2]float64{{128, 44}, {226, 210}, {30, 210}}, 28,
+		[][2]float64{{128, 176}, {176, 128}, {144, 128}, {144, 80}, {112, 80}, {112, 128}, {80, 128}},
+		[2][2]float64{{96, 208}, {160, 208}}, 32, 208, 48, 44, 14}
 )
 
 type state struct {
 	name        string
-	top, bottom color.NRGBA // tile gradient
+	top, bottom color.NRGBA // triangle gradient
 	badge       bool
 }
 
@@ -63,26 +59,6 @@ var (
 	icoSizes = []int{256, 64, 48, 40, 32, 24, 20, 16} // largest first: some converters take the first
 )
 
-func rad(deg float64) float64 { return deg * math.Pi / 180 }
-
-func (l look) ringPoint(deg float64) (float64, float64) {
-	return l.ringX + l.ringR*math.Cos(rad(deg)), l.ringY + l.ringR*math.Sin(rad(deg))
-}
-
-// head is the replay arrow's head at the arc's start, pointing against the
-// arc's direction (counterclockwise on screen).
-func (l look) head() [][2]float64 {
-	x, y := l.ringPoint(l.ringFrom)
-	t := rad(l.ringFrom)
-	tx, ty := math.Sin(t), -math.Cos(t) // tangent, counterclockwise
-	nx, ny := math.Cos(t), math.Sin(t)  // outwards
-	return [][2]float64{
-		{x + tx*l.headLen, y + ty*l.headLen},
-		{x + nx*l.headHalf, y + ny*l.headHalf},
-		{x - nx*l.headHalf, y - ny*l.headHalf},
-	}
-}
-
 func inPolygon(px, py float64, poly [][2]float64) bool {
 	in := false
 	for i, j := 0, len(poly)-1; i < len(poly); j, i = i, i+1 {
@@ -96,41 +72,39 @@ func inPolygon(px, py float64, poly [][2]float64) bool {
 
 func inCircle(px, py, cx, cy, r float64) bool { return (px-cx)*(px-cx)+(py-cy)*(py-cy) <= r*r }
 
-func (l look) inTile(px, py float64) bool {
-	dx := math.Max(math.Abs(px-128)-(128-l.tileRadius), 0)
-	dy := math.Max(math.Abs(py-128)-(128-l.tileRadius), 0)
-	return dx*dx+dy*dy <= l.tileRadius*l.tileRadius
+// nearSegment reports whether a point is at most d from the segment a–b.
+func nearSegment(px, py float64, a, b [2]float64, d float64) bool {
+	dx, dy := b[0]-a[0], b[1]-a[1]
+	t := math.Max(0, math.Min(1, ((px-a[0])*dx+(py-a[1])*dy)/(dx*dx+dy*dy)))
+	return inCircle(px, py, a[0]+t*dx, a[1]+t*dy, d)
 }
 
-func (l look) inRing(px, py float64) bool {
-	d := math.Hypot(px-l.ringX, py-l.ringY)
-	if math.Abs(d-l.ringR) <= l.ringW/2 {
-		a := math.Atan2(py-l.ringY, px-l.ringX) * 180 / math.Pi
-		for a < l.ringFrom {
-			a += 360
-		}
-		if a <= l.ringTo {
-			return true
-		}
+// inTriangle is the triangle grown by the radius, which rounds its corners.
+func (l look) inTriangle(px, py float64) bool {
+	if inPolygon(px, py, l.corners) {
+		return true
 	}
-	for _, deg := range []float64{l.ringFrom, l.ringTo} { // round caps
-		x, y := l.ringPoint(deg)
-		if inCircle(px, py, x, y, l.ringW/2) {
+	for i := range l.corners {
+		if nearSegment(px, py, l.corners[i], l.corners[(i+1)%len(l.corners)], l.radius) {
 			return true
 		}
 	}
 	return false
 }
 
+func (l look) inGlyph(px, py float64) bool {
+	return inPolygon(px, py, l.arrow) || nearSegment(px, py, l.bar[0], l.bar[1], l.barW/2)
+}
+
 // shade returns the color at a point of the 256 box, transparent outside.
 func shade(s state, l look, px, py float64) color.NRGBA {
-	if s.badge && inCircle(px, py, badgeX, badgeY, badgeR) {
+	if s.badge && inCircle(px, py, l.badgeX, l.badgeY, l.badgeR) {
 		return red
 	}
-	if s.badge && inCircle(px, py, badgeX, badgeY, badgeR+badgeGap) || !l.inTile(px, py) {
+	if s.badge && inCircle(px, py, l.badgeX, l.badgeY, l.badgeR+l.badgeGap) || !l.inTriangle(px, py) {
 		return color.NRGBA{}
 	}
-	if l.inRing(px, py) || inPolygon(px, py, l.head()) || inPolygon(px, py, l.arrow) {
+	if l.inGlyph(px, py) {
 		return glyph
 	}
 	f := py / 256
@@ -247,33 +221,25 @@ func points(poly [][2]float64) string {
 
 func hex(c color.NRGBA) string { return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B) }
 
-// svg is the logo of the interface, drawn from the same numbers: only the
-// arrows, without the tile, in the tile's gradient and cropped to them.
+// svg is the logo of the interface, drawn from the same numbers: the
+// triangle's corners rounded by a stroke with round joins, cropped to it.
 func svg(s state) string {
 	l := large
-	x1, y1 := l.ringPoint(l.ringFrom)
-	x2, y2 := l.ringPoint(l.ringTo)
-	arc := 0
-	if l.ringTo-l.ringFrom > 180 {
-		arc = 1
+	x0, y0, x1, y1 := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
+	for _, p := range l.corners {
+		x0, y0 = math.Min(x0, p[0]-l.radius), math.Min(y0, p[1]-l.radius)
+		x1, y1 = math.Max(x1, p[0]+l.radius), math.Max(y1, p[1]+l.radius)
 	}
-	// the arc runs past the left, right and bottom, the head is the highest
-	out := l.ringR + l.ringW/2
-	top := l.ringY + out
-	for _, p := range l.head() {
-		top = math.Min(top, p[1])
-	}
-	side := 2*out + 4
-	vx, vy := l.ringX-side/2, (top+l.ringY+out)/2-side/2
+	side := math.Max(x1-x0, y1-y0) + 4
+	vx, vy := (x0+x1)/2-side/2, (y0+y1)/2-side/2
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="%.1f %.1f %g %g">
 <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="%.1f" x2="0" y2="%.1f"><stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient></defs>
-<g fill="url(#g)">
-<path d="M%.1f %.1fA%g %g 0 %d 1 %.1f %.1f" fill="none" stroke="url(#g)" stroke-width="%g" stroke-linecap="round"/>
-<polygon points="%s"/>
-<polygon points="%s"/>
-</g>
+<polygon points="%s" fill="url(#g)" stroke="url(#g)" stroke-width="%g" stroke-linejoin="round"/>
+<polygon points="%s" fill="%s"/>
+<path d="M%g %gH%g" stroke="%s" stroke-width="%g" stroke-linecap="round"/>
 </svg>
-`, vx, vy, side, side, top, l.ringY+out, hex(s.top), hex(s.bottom), x1, y1, l.ringR, l.ringR, arc, x2, y2, l.ringW, points(l.head()), points(l.arrow))
+`, vx, vy, side, side, y0, y1, hex(s.top), hex(s.bottom), points(l.corners), 2*l.radius,
+		points(l.arrow), hex(glyph), l.bar[0][0], l.bar[0][1], l.bar[1][0], hex(glyph), l.barW)
 }
 
 func write(path string, data []byte) {

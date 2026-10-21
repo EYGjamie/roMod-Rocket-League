@@ -79,7 +79,7 @@ function renderFoot(lost) {
     state.update ? h('a', { class: 'upd', href: '#', onclick: e => { e.preventDefault(); installUpdate(); } }, 'Update auf ' + state.update) : null,
     h('button', { class: 'pause' + (any ? ' on' : ''), title: 'Pausieren oder fortsetzen', onclick: () => run(() => api('/api/pause', { method: 'POST', body: { watch: !any, mark: !any } })) },
       ico(any ? 'play' : 'pause', 13),
-      h('span', null, (paused.watch && paused.mark ? 'Pausiert' : paused.watch ? 'Uploads pausiert' : paused.mark ? 'Auto-Speichern pausiert' : 'Läuft') + (system(state).hotkeys ? ', Strg+Alt+P' : ''))),
+      h('span', null, (paused.watch && paused.mark ? 'Pausiert' : paused.watch ? 'Uploads pausiert' : paused.mark ? 'Auto-Speichern pausiert' : 'Läuft') + (system(state).hotkeys && state.pause_hotkey ? ', ' + state.pause_hotkey : ''))),
     h('span', { class: 'n5' }, /^\d/.test(v) ? 'v' + v : v));
 }
 

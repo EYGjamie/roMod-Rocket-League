@@ -7,7 +7,8 @@ package popup
 type Quick struct {
 	Title   string    // replay summary
 	Target  string    // folder chosen by the rule
-	Options [4]string // labels for Ctrl+Alt+1–4, "" if unused
+	Options [4]string // labels of the choices 1–4, "" if unused
+	Keys    [4]string // their hotkeys as shown, e.g. "Strg+Alt+1", "" if none
 	Seconds int
 }
 

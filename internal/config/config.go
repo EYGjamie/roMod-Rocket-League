@@ -5,7 +5,6 @@ package config
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,8 +30,9 @@ type Config struct {
 	MarkKey      string `json:"mark_key"` // KeyboardEvent.code of the game's save replay key
 	MarkHoldMs   int    `json:"mark_hold_ms"`
 
-	GUIHotkey   string `json:"gui_hotkey"`
-	PauseHotkey string `json:"pause_hotkey"`
+	GUIHotkey        string    `json:"gui_hotkey"`
+	PauseHotkey      string    `json:"pause_hotkey"`
+	QuickSortHotkeys [4]string `json:"quick_sort_hotkeys"` // alternatives 1–3 and the inbox while the prompt shows
 
 	NotifyUploaded   bool `json:"notify_uploaded"`
 	NotifyFailed     bool `json:"notify_failed"`
@@ -59,6 +59,7 @@ func Default() Config {
 		MarkHoldMs:       1200,
 		GUIHotkey:        "Ctrl+Alt+B",
 		PauseHotkey:      "Ctrl+Alt+P",
+		QuickSortHotkeys: [4]string{"Ctrl+Alt+1", "Ctrl+Alt+2", "Ctrl+Alt+3", "Ctrl+Alt+4"},
 		NotifyUploaded:   true,
 		NotifyFailed:     true,
 		NotifySession:    true,
@@ -142,16 +143,27 @@ func (c Config) Validate() error {
 	case c.QuickSortSeconds < 3 || c.QuickSortSeconds > 60:
 		return fmt.Errorf("quick_sort_seconds %d ungültig (3 bis 60)", c.QuickSortSeconds)
 	}
-	for name, hk := range map[string]string{"gui_hotkey": c.GUIHotkey, "pause_hotkey": c.PauseHotkey} {
-		if _, err := hotkey.Parse(hk); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
+	keys := []string{c.GUIHotkey, c.PauseHotkey}
+	keys = append(keys, c.QuickSortHotkeys[:]...)
+	used := map[hotkey.Hotkey]bool{}
+	for i, key := range keys {
+		hk, err := hotkey.Parse(key)
+		if err != nil {
+			return fmt.Errorf("%s: %w", hotkeyNames[i], err)
 		}
-	}
-	if c.GUIHotkey != "" && c.GUIHotkey == c.PauseHotkey {
-		return errors.New("Overlay und Pause brauchen verschiedene Hotkeys")
+		if hk.IsZero() {
+			continue
+		}
+		if used[hk] {
+			return fmt.Errorf("%s ist schon vergeben, jeder Hotkey braucht eine eigene Kombination", hotkey.Label(key))
+		}
+		used[hk] = true
 	}
 	return nil
 }
+
+// hotkeyNames name the hotkeys in the order Validate checks them.
+var hotkeyNames = []string{"gui_hotkey", "pause_hotkey", "quick_sort_hotkeys[0]", "quick_sort_hotkeys[1]", "quick_sort_hotkeys[2]", "quick_sort_hotkeys[3]"}
 
 // Save writes c to path, atomically and with the token encrypted.
 func Save(path string, c Config) error {

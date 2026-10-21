@@ -213,7 +213,7 @@ func (d *desk) OpenBrowser(target string) {
 }
 
 func (d *desk) ShowQuickSort(q app.QuickSort, pick func(int)) {
-	d.pop.ShowQuickSort(popup.Quick{Title: q.Title, Target: q.Target, Options: q.Options, Seconds: q.Seconds}, pick)
+	d.pop.ShowQuickSort(popup.Quick{Title: q.Title, Target: q.Target, Options: q.Options, Keys: q.Keys, Seconds: q.Seconds}, pick)
 }
 
 func (d *desk) HideQuickSort() { d.pop.HideQuickSort() }
