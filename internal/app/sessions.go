@@ -127,7 +127,7 @@ func (a *App) checkSessionEnd(gameClosed bool) {
 	}
 	a.toast(Toast{Kind: "session", Title: "Session beendet", Body: body,
 		Actions: []ToastAction{
-			{Label: "Session einordnen", Run: func() { a.desk.ShowOverlay("eingang") }},
+			{Label: "Session einordnen", Run: func() { a.desk.ShowOverlay("unsortiert") }},
 			{Label: "Statistik", Run: func() { a.desk.ShowOverlay("statistik") }},
 		},
 		Disable: func() { a.UpdateSettings([]byte(`{"notify_session":false}`)) }})

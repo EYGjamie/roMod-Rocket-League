@@ -159,7 +159,10 @@ func (vc viewCtx) matches(r store.Replay, q listQuery, since time.Time) bool {
 	if q.Q == "" {
 		return true
 	}
-	hay := []string{r.MapName, r.Title, r.File, r.UploaderName, r.BlueName, r.OrangeName, rules.PlaylistName(r.PlaylistID)}
+	hay := []string{r.MapName, r.Title, r.File, r.UploaderName, r.BlueName, r.OrangeName, rules.PlaylistName(r.PlaylistID), vc.paths[r.GroupID]}
+	if r.Own && r.GroupID == "" {
+		hay = append(hay, "Unsortiert")
+	}
 	for _, p := range r.Players {
 		hay = append(hay, p.Name)
 	}

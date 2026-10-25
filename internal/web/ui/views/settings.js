@@ -305,7 +305,7 @@ export async function mount(root, ctx) {
           sys.linux ? h('div', { class: 'hint', style: { paddingBottom: 'var(--space-2)' } }, 'Unter Wayland wirken sie nur, solange ein X11-Fenster wie das Spiel im Vordergrund ist. Strg+Alt+F1 bis F12 wechselt unter Linux die Konsole.') : null,
           row(sys.overlay ? 'Overlay öffnen und schließen' : 'Oberfläche öffnen', null, hotkeyCapture(s.gui_hotkey, v => save({ gui_hotkey: v }), meta)),
           row('Pausieren und fortsetzen', 'Uploads und Auto-Speichern zusammen', hotkeyCapture(s.pause_hotkey, v => save({ pause_hotkey: v }), meta)),
-          sys.quick_sort ? ['Erste Alternative', 'Zweite Alternative', 'Dritte Alternative', 'In den Eingang'].map((label, i) =>
+          sys.quick_sort ? ['Erste Alternative', 'Zweite Alternative', 'Dritte Alternative', 'Unsortiert lassen'].map((label, i) =>
             row('Schnell-Einordnen: ' + label, i ? null : 'Solange das Popup sichtbar ist',
               hotkeyCapture(s.quick_sort_hotkeys[i], v => save({ quick_sort_hotkeys: s.quick_sort_hotkeys.map((k, j) => j === i ? v : k) }), meta))) : null,
         ] : h('div', { class: 'hint' }, sys.mac

@@ -37,7 +37,7 @@ function doneRow(r) {
     h('td', { class: 'nowrap' }, plName(r.playlist_id, r.playlist)),
     h('td', { class: 'nowrap n4' }, r.map),
     h('td', null, h('span', { class: 'state', role: 'img', title: 'Hochgeladen', 'aria-label': 'Hochgeladen' }, ico('check'))),
-    h('td', { class: 'c' }, h('span', { class: 'tag tag-neutral', title: r.group || 'Eingang' }, r.group || 'Eingang')),
+    h('td', { class: 'c' }, h('span', { class: 'tag tag-neutral', title: r.group || 'Unsortiert' }, r.group || 'Unsortiert')),
     h('td', { class: 'c nowrap n4 num' }, fmt.when(r.created, true)));
 }
 

@@ -315,6 +315,15 @@ func (b *Client) ListGroups(ctx context.Context, parent string) ([]Group, error)
 	return r.List, err
 }
 
+// GetGroup returns a group with the statistics ballchasing computes for its
+// players and teams, as the raw JSON reply. Its status is "ok", or
+// "pending_replays" while replays in it are still processed.
+func (b *Client) GetGroup(ctx context.Context, id string) ([]byte, error) {
+	var raw json.RawMessage
+	err := b.call(ctx, "group", http.MethodGet, b.BaseURL+"/api/groups/"+url.PathEscape(id), nil, &raw, http.StatusOK)
+	return raw, err
+}
+
 // CreateGroup creates a group, as a subgroup of parent if that is not empty.
 // clusters selects team detection that tolerates substitutes.
 func (b *Client) CreateGroup(ctx context.Context, name, parent string, clusters bool) (string, error) {
@@ -335,6 +344,13 @@ func (b *Client) CreateGroup(ctx context.Context, name, parent string, clusters 
 	}
 	err := b.call(ctx, "groups-write", http.MethodPost, b.BaseURL+"/api/groups", in, &r, http.StatusCreated)
 	return r.ID, err
+}
+
+// SetParent moves a group with its replays and subgroups into another
+// group, or to the top level if parent is empty.
+func (b *Client) SetParent(ctx context.Context, id, parent string) error {
+	u := b.BaseURL + "/api/groups/" + url.PathEscape(id)
+	return b.call(ctx, "groups-write", http.MethodPatch, u, map[string]string{"parent": parent}, nil, http.StatusNoContent)
 }
 
 // DeleteGroup deletes a group on ballchasing.

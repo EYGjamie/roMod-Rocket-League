@@ -185,7 +185,7 @@ func TestUploadIsSortedByRuleAfterQuickSort(t *testing.T) {
 	ta.drop("ranked-doubles_a.replay")
 	ta.waitFor("quick sort prompt", func() bool { q, _, _ := ta.desk.snapshot(); return len(q) == 1 })
 	q, _, _ := ta.desk.snapshot()
-	if q[0].Target != "2s Ranked" || q[0].Options[3] != "Eingang" || !strings.Contains(q[0].Title, "Sieg 3:1") {
+	if q[0].Target != "2s Ranked" || q[0].Options[3] != "Unsortiert" || !strings.Contains(q[0].Title, "Sieg 3:1") {
 		t.Fatalf("prompt = %+v", q[0])
 	}
 	if g, ok := ta.fake.GroupByName("2s Ranked"); !ok || g.Parent != "" {
@@ -519,6 +519,104 @@ func TestDeleteOnlyEmptyFolders(t *testing.T) {
 	}
 	if code := ta.call("DELETE", "/api/groups/"+empty, "", &e); code != 200 {
 		t.Errorf("deleting an empty folder: %d %v", code, e)
+	}
+}
+
+func TestFolderStats(t *testing.T) {
+	ta := newTestApp(t, nil)
+	liga := ta.fake.AddGroup(ballchasingtest.Group{Name: "Liga"})
+	archiv := ta.fake.AddGroup(ballchasingtest.Group{Name: "Archiv"})
+	ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private", Group: liga,
+		Blue:   []ballchasingtest.Player{{Name: "Jamie", PID: "steam:" + ta.fake.Me.SteamID, Goals: 2, Shots: 4}},
+		Orange: []ballchasingtest.Player{{Name: "Gegner", PID: "epic:x", Goals: 1, Shots: 1}}})
+	ta.syncAll(context.Background(), true)
+
+	type stats struct {
+		Group struct {
+			Status  string `json:"status"`
+			Players []struct {
+				Platform   string `json:"platform"`
+				Name       string `json:"name"`
+				Cumulative struct {
+					Games int `json:"games"`
+					Wins  int `json:"wins"`
+				} `json:"cumulative"`
+			} `json:"players"`
+		} `json:"group"`
+		Fetched time.Time `json:"fetched"`
+	}
+	var first, again, after stats
+	if code := ta.call("GET", "/api/groups/"+liga+"/stats", "", &first); code != 200 {
+		t.Fatalf("stats: %d", code)
+	}
+	if first.Group.Status != "ok" || len(first.Group.Players) != 2 {
+		t.Fatalf("stats = %+v", first)
+	}
+	for _, p := range first.Group.Players {
+		if p.Name == "Jamie" && (p.Platform != "steam" || p.Cumulative.Games != 1 || p.Cumulative.Wins != 1) {
+			t.Errorf("Jamie = %+v", p)
+		}
+	}
+	ta.advance(time.Minute)
+	ta.call("GET", "/api/groups/"+liga+"/stats", "", &again)
+	if !again.Fetched.Equal(first.Fetched) {
+		t.Error("asked ballchasing again within a minute")
+	}
+	ta.call("POST", "/api/groups/"+liga+"/move", `{"parent":"`+archiv+`"}`, nil)
+	ta.call("GET", "/api/groups/"+liga+"/stats", "", &after)
+	if after.Fetched.Equal(first.Fetched) {
+		t.Error("moving folders kept the old numbers")
+	}
+}
+
+func TestMoveFolders(t *testing.T) {
+	ta := newTestApp(t, nil)
+	liga := ta.fake.AddGroup(ballchasingtest.Group{Name: "Liga"})
+	tag := ta.fake.AddGroup(ballchasingtest.Group{Name: "Spieltag 1", Parent: liga})
+	archiv := ta.fake.AddGroup(ballchasingtest.Group{Name: "Archiv"})
+	id := ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private"})
+	ta.API().SetGroup(context.Background(), id, tag)
+	ta.syncAll(context.Background(), true)
+
+	count := func(id string) int {
+		groups, _ := ta.store.Groups()
+		for _, g := range groups {
+			if g.ID == id {
+				return g.Indirect
+			}
+		}
+		return -1
+	}
+	var e map[string]any
+	if code := ta.call("POST", "/api/groups/"+tag+"/move", `{"parent":"`+archiv+`"}`, &e); code != 200 {
+		t.Fatalf("move: %d %v", code, e)
+	}
+	if g, _ := ta.fake.GroupOf(tag); g.Parent != archiv {
+		t.Errorf("parent on ballchasing = %q, want %q", g.Parent, archiv)
+	}
+	if count(liga) != 0 || count(archiv) != 1 {
+		t.Errorf("counts after the move: Liga %d, Archiv %d", count(liga), count(archiv))
+	}
+	var list listResult
+	ta.call("GET", "/api/replays?q=archiv", "", &list)
+	if len(list.Items) != 1 || list.Items[0].(map[string]any)["group"] != "Archiv › Spieltag 1" {
+		t.Errorf("search by the new path = %+v", list.Items)
+	}
+
+	for _, bad := range []string{tag, "missing"} {
+		if code := ta.call("POST", "/api/groups/"+archiv+"/move", `{"parent":"`+bad+`"}`, &e); code != http.StatusBadRequest {
+			t.Errorf("moving Archiv into %s: %d", bad, code)
+		}
+	}
+	if code := ta.call("POST", "/api/groups/"+tag+"/move", `{"parent":""}`, &e); code != 200 {
+		t.Fatalf("move to the top: %d %v", code, e)
+	}
+	if g, _ := ta.fake.GroupOf(tag); g.Parent != "" || count(archiv) != 0 || count(tag) != 1 {
+		t.Errorf("after moving to the top: parent %q, Archiv %d", g.Parent, count(archiv))
+	}
+	ta.call("GET", "/api/replays?q=unsortiert", "", &list)
+	if len(list.Items) != 0 {
+		t.Errorf("a sorted replay counts as unsorted: %+v", list.Items)
 	}
 }
 

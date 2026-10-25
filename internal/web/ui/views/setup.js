@@ -72,7 +72,7 @@ export async function mount(root, ctx) {
         h('span', { class: 'ell' }, r.playlists.map(id => plName(id, playlists.find(p => p.id === id)?.name)).join(', ')), ico('arrow-right'),
         h('select', { class: 'input', 'aria-label': 'Zielordner', onchange: e => { r.target_id = e.target.value; } },
           h('option', { value: '' }, r.target_name + ' (neu)'), folderOptions(info.groups, r.target_id))))),
-      h('span', { class: 'sm n5' }, 'Ohne Haken landet die Playlist im Eingang. Neue Ordner werden beim ersten Spiel angelegt.'),
+      h('span', { class: 'sm n5' }, 'Ohne Haken landet die Playlist unter „Unsortiert“ im Verlauf. Neue Ordner werden beim ersten Spiel angelegt.'),
     ], async () => {
       const body = rules.filter(r => r.on).map(r => ({ enabled: true, playlists: r.playlists, target_id: r.target_id || '',
         target_name: r.target_id ? groupPath(info.groups, r.target_id) : r.target_name.trim() })).filter(r => r.target_id || r.target_name);

@@ -5,14 +5,13 @@ import * as history from './views/history.js';
 import * as detail from './views/detail.js';
 import * as stats from './views/stats.js';
 import * as folders from './views/folders.js';
-import * as inbox from './views/inbox.js';
 import * as rules from './views/rules.js';
 import * as settings from './views/settings.js';
 import * as setup from './views/setup.js';
 
 const views = {
   uebersicht: overview, verlauf: history, statistik: stats, ordner: folders,
-  eingang: inbox, regeln: rules, einstellungen: settings, einrichtung: setup,
+  regeln: rules, einstellungen: settings, einrichtung: setup,
 };
 
 const state = {};
@@ -57,7 +56,7 @@ function renderNav() {
     a.setAttribute('aria-label', title);
   };
   dot('failed', failed, 'uebersicht', failed ? `Übersicht, ${failed} Fehler` : 'Übersicht');
-  dot('inbox', state.inbox, 'eingang', state.inbox ? `Eingang, ${state.inbox} unsortiert` : 'Eingang');
+  dot('unsorted', state.inbox, 'verlauf', state.inbox ? `Verlauf, ${state.inbox} unsortiert` : 'Verlauf');
   const setupNeeded = ['none', 'invalid'].includes(state.account?.status);
   dot('setup', setupNeeded, 'einstellungen', setupNeeded ? 'Einstellungen, ballchasing nicht verbunden' : 'Einstellungen');
 }
@@ -87,6 +86,11 @@ async function route() {
   const [name = '', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
   if (!state.version) await refreshState();
   let key = name;
+  if (key === 'unsortiert' || key === 'eingang') { // links from notifications, and the former inbox
+    history.showUnsorted();
+    key = 'verlauf';
+    window.history.replaceState(null, '', '#/verlauf');
+  }
   let view = views[key];
   if (key === 'verlauf' && rest.length) view = detail;
   if (!view) {

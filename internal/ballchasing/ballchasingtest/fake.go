@@ -104,6 +104,8 @@ func New(t interface {
 	mux.HandleFunc("GET /api/replays/{id}/file", f.download)
 	mux.HandleFunc("GET /api/groups", f.listGroups)
 	mux.HandleFunc("POST /api/groups", f.createGroup)
+	mux.HandleFunc("GET /api/groups/{id}", f.getGroup)
+	mux.HandleFunc("PATCH /api/groups/{id}", f.patchGroup)
 	mux.HandleFunc("DELETE /api/groups/{id}", f.deleteGroup)
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != Token {
@@ -197,6 +199,17 @@ func (f *Server) GroupByName(name string) (Group, bool) {
 		}
 	}
 	return Group{}, false
+}
+
+// GroupOf returns a copy of the stored group.
+func (f *Server) GroupOf(id string) (Group, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g, ok := f.groups[id]
+	if !ok {
+		return Group{}, false
+	}
+	return *g, true
 }
 
 // Patched returns the group IDs the replay was moved to, in order.
@@ -549,6 +562,156 @@ func (f *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	id := f.AddGroup(Group{Name: in["name"], Parent: parent})
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "link": f.URL + "/api/groups/" + id})
+}
+
+// getGroup answers with the statistics of every player over the replays in
+// the group and its subgroups: totals and averages per game.
+func (f *Server) getGroup(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g, ok := f.groups[r.PathValue("id")]
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "group not found"})
+		return
+	}
+	type total struct {
+		pid, name   string
+		games, wins int
+		dur         float64
+		sums        map[string]map[string]float64
+	}
+	byPID := map[string]*total{}
+	var order []*total
+	status := "ok"
+	for _, rp := range f.replays {
+		if !f.within(rp.Group, g.ID) {
+			continue
+		}
+		if rp.PendingPolls > 0 {
+			status = "pending_replays"
+		}
+		blue, orange := goalsOf(rp.Blue), goalsOf(rp.Orange)
+		for _, side := range []struct {
+			ps  []Player
+			won bool
+		}{{rp.Blue, blue > orange}, {rp.Orange, orange > blue}} {
+			for _, p := range side.ps {
+				t := byPID[p.PID]
+				if t == nil {
+					t = &total{pid: p.PID, name: p.Name, sums: map[string]map[string]float64{}}
+					byPID[p.PID] = t
+					order = append(order, t)
+				}
+				t.games++
+				if side.won {
+					t.wins++
+				}
+				t.dur += float64(rp.Duration)
+				for grp, values := range playerStats(p, rp.Duration) {
+					if t.sums[grp] == nil {
+						t.sums[grp] = map[string]float64{}
+					}
+					for k, v := range values {
+						t.sums[grp][k] += v
+					}
+				}
+			}
+		}
+	}
+	rates := map[string]bool{"bpm": true, "avg_amount": true, "avg_speed": true, "avg_distance_to_ball": true}
+	players := []any{}
+	for _, t := range order {
+		cum := map[string]any{"games": t.games, "wins": t.wins, "win_percentage": 100 * float64(t.wins) / float64(t.games), "play_duration": t.dur}
+		avg := map[string]any{}
+		for grp, values := range t.sums {
+			c, a := map[string]float64{}, map[string]float64{}
+			for k, v := range values {
+				c[k], a[k] = v, v/float64(t.games)
+				if rates[k] {
+					c[k] = a[k]
+				}
+				if strings.HasPrefix(k, "time_") {
+					a["percent_"+strings.TrimPrefix(k, "time_")] = 100 * v / t.dur
+				}
+			}
+			if grp == "core" {
+				c["shooting_percentage"] = pct(int(values["goals"]), int(values["shots"]))
+				a["shooting_percentage"] = c["shooting_percentage"]
+			}
+			cum[grp], avg[grp] = c, a
+		}
+		platform, id, _ := strings.Cut(t.pid, ":")
+		players = append(players, map[string]any{"platform": platform, "id": id, "name": t.name, "team": "", "cumulative": cum, "game_average": avg})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": g.ID, "name": g.Name, "link": f.URL + "/api/groups/" + g.ID,
+		"status": status, "players": players, "teams": []any{}})
+}
+
+// within reports whether group id is top or one of its subgroups.
+func (f *Server) within(id, top string) bool {
+	for n := 0; id != "" && n < 10; n++ {
+		if id == top {
+			return true
+		}
+		g, ok := f.groups[id]
+		if !ok {
+			return false
+		}
+		id = g.Parent
+	}
+	return false
+}
+
+func goalsOf(ps []Player) (n int) {
+	for _, p := range ps {
+		n += p.Goals
+	}
+	return n
+}
+
+// playerStats are the numbers of one player in one game; besides the core
+// they are made up, a little different per player.
+func playerStats(p Player, duration int) map[string]map[string]float64 {
+	v := 0.75 + float64(len(p.Name)%6)/10
+	d := float64(duration)
+	mvp := 0.0
+	if p.MVP {
+		mvp = 1
+	}
+	return map[string]map[string]float64{
+		"core": {"score": float64(p.Score), "goals": float64(p.Goals), "assists": float64(p.Assists), "saves": float64(p.Saves),
+			"shots": float64(p.Shots), "mvp": mvp},
+		"boost": {"bpm": 380 * v, "avg_amount": 45 * v, "amount_collected": 2100 * v, "amount_stolen": 410 * v,
+			"count_collected_big": 14 * v, "count_collected_small": 38 / v, "time_zero_boost": .075 * d * v, "time_full_boost": .06 * d / v},
+		"movement": {"avg_speed": 1520 * v, "total_distance": 420000 * v, "time_supersonic_speed": .13 * d * v,
+			"time_ground": .6 * d / v, "time_high_air": .065 * d * v, "count_powerslide": 54 * v},
+		"positioning": {"avg_distance_to_ball": 2600 / v, "time_defensive_third": .4 * d / v, "time_offensive_third": .26 * d * v,
+			"time_behind_ball": .7 * d / v, "time_most_back": .33 * d / v, "time_closest_to_ball": .3 * d * v},
+		"demo": {"inflicted": float64(len(p.Name) % 3), "taken": float64(len(p.Name) % 2)},
+	}
+}
+
+// patchGroup moves a group; an empty parent puts it on the top level.
+func (f *Server) patchGroup(w http.ResponseWriter, r *http.Request) {
+	var in map[string]string
+	json.NewDecoder(r.Body).Decode(&in)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g, ok := f.groups[r.PathValue("id")]
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "group not found"})
+		return
+	}
+	if parent, ok := in["parent"]; ok {
+		for p := parent; p != ""; p = f.groups[p].Parent {
+			if _, exists := f.groups[p]; !exists || p == g.ID {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid parent"})
+				return
+			}
+		}
+		g.Parent = parent
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (f *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {

@@ -129,6 +129,8 @@ type App struct {
 	release  atomic.Pointer[release] // newer release on GitHub, nil if none
 	syncWake chan bool               // true = full sync
 
+	groupStats statsCache
+
 	ln    net.Listener
 	token string
 	ctx   context.Context
