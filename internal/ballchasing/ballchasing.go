@@ -315,6 +315,15 @@ func (b *Client) ListGroups(ctx context.Context, parent string) ([]Group, error)
 	return r.List, err
 }
 
+// GetGroup returns a group with the statistics ballchasing computes for its
+// players and teams, as the raw JSON reply. Its status is "ok", or
+// "pending_replays" while replays in it are still processed.
+func (b *Client) GetGroup(ctx context.Context, id string) ([]byte, error) {
+	var raw json.RawMessage
+	err := b.call(ctx, "group", http.MethodGet, b.BaseURL+"/api/groups/"+url.PathEscape(id), nil, &raw, http.StatusOK)
+	return raw, err
+}
+
 // CreateGroup creates a group, as a subgroup of parent if that is not empty.
 // clusters selects team detection that tolerates substitutes.
 func (b *Client) CreateGroup(ctx context.Context, name, parent string, clusters bool) (string, error) {

@@ -1,7 +1,9 @@
 import { api, h, ico, fill, fmt, run, flash, menu, debounce, confirmDialog, promptDialog, pickFolder, moveTo, syncNow, loadGroups, tree, groupPath, visibilityNames, resultBadge, scoreLine, mates } from '../lib.js';
+import { render as renderStats } from './groupstats.js';
 
 const open = new Set();
 let dragged = ''; // ID of the folder being dragged
+let analyse = false; // the pane shows the analysis instead of the replays
 
 export async function mount(root, ctx) {
   let selected = (() => { try { return sessionStorage.getItem('ordner'); } catch { return null; } })() || '';
@@ -11,6 +13,7 @@ export async function mount(root, ctx) {
   let rules = [];
   let items = [];
   let total = 0;
+  let stats = null; // analysis of the selected folder: {id, group, fetched}, error set if it failed
   const sel = new Set();
   const nodes = h('div', { style: { display: 'contents' }, role: 'tree', 'aria-label': 'Ordner' });
   const sync = h('div', { class: 'sync' });
@@ -155,6 +158,23 @@ export async function mount(root, ctx) {
     h('span', { class: 'n4 num' }, fmt.dur(r.duration)),
     h('span', { class: 'sm n4 num nowrap r' }, fmt.when(r.date)));
 
+  async function loadStats(fresh) {
+    const id = selected;
+    const res = await run(() => api(`/api/groups/${encodeURIComponent(id)}/stats` + (fresh ? '?fresh=1' : '')), null, 'Analyse wird von ballchasing geladen');
+    if (id !== selected) return;
+    stats = { id, ...(res || { error: true }) };
+    renderPane();
+  }
+
+  // analysis shows what ballchasing computes for the folder, once loaded
+  function analysis(g) {
+    if (stats?.id !== g.id) return h('div', { class: 'empty' }, 'Analyse wird geladen …');
+    if (stats.error) return h('div', { class: 'empty' }, 'Die Analyse ließ sich nicht laden. ', h('button', { class: 'link', onclick: () => loadStats(true) }, 'Erneut versuchen'));
+    const el = h('div', { class: 'stack', style: { gap: 'var(--space-4)' } });
+    renderStats(el, stats, { me: ctx.state.me || [], replays: g.indirect, reload: () => loadStats(true) });
+    return el;
+  }
+
   function renderPane() {
     const g = groups.find(x => x.id === selected);
     if (!g) return fill(pane, h('div', { class: 'empty' }, groups.length ? 'Wähle links einen Ordner.' : 'Noch keine Ordner. Lege einen an oder gleiche mit ballchasing ab.'));
@@ -165,6 +185,12 @@ export async function mount(root, ctx) {
       g.parent ? h('span', { class: 'n4', style: { fontSize: '13px' } }, groupPath(groups, g.parent) + ' ›') : null,
       h('span', { style: { fontSize: '18px' } }, g.name),
       h('span', { class: 'end actions' },
+        h('button', { class: 'btn btn-secondary' + (analyse ? ' on' : ''), 'aria-pressed': String(analyse),
+          title: analyse ? 'Zurück zu den Replays' : 'Auswertung aller Replays in diesem Ordner', onclick: () => {
+            analyse = !analyse;
+            if (analyse && stats?.id !== g.id) loadStats();
+            renderPane();
+          } }, ico('chart-bar'), 'Analyse'),
         h('a', { class: 'btn btn-secondary', href: 'https://ballchasing.com/group/' + g.id, target: '_blank', rel: 'noopener noreferrer' }, ico('arrow-square-out'), 'ballchasing'),
         h('button', { class: 'btn btn-secondary btn-icon', 'data-more': '', 'aria-label': 'Weitere Aktionen', title: 'Weitere Aktionen', onclick: e => menu(e.currentTarget, [
           { label: 'Neuer Unterordner …', icon: 'folder-simple-plus', run: () => newFolder(g.id) },
@@ -179,6 +205,7 @@ export async function mount(root, ctx) {
               && await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht', `Ordner „${g.name}“ wird gelöscht`)) select(g.parent);
           } },
         ], { width: 220 }) }, ico('dots-three'))));
+    if (analyse) return fill(pane, head, analysis(g));
     fill(pane, head,
       subs.length || items.length ? h('div', { class: 'rows' },
         subs.map(s => {
@@ -221,6 +248,8 @@ export async function mount(root, ctx) {
     try { sessionStorage.setItem('ordner', selected); } catch { /* private mode */ }
     sel.clear();
     items = [];
+    stats = null;
+    if (analyse && selected) loadStats();
     renderTree();
     loadItems();
   }
@@ -237,6 +266,7 @@ export async function mount(root, ctx) {
 
   await load();
   await loadItems();
+  if (analyse && selected) loadStats();
   ctx.on('groups', debounce(async () => { await load(); loadItems(); }, 300));
   ctx.on('rules', debounce(async () => { await load(); renderPane(); }, 300));
   ctx.on('replays', debounce(() => loadItems(), 400));

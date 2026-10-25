@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing"
@@ -57,6 +58,7 @@ func (a *App) handler() http.Handler {
 
 	mux.HandleFunc("GET /api/groups", a.apiGroups)
 	mux.HandleFunc("POST /api/groups", a.apiCreateGroup)
+	mux.HandleFunc("GET /api/groups/{id}/stats", a.apiGroupStats)
 	mux.HandleFunc("POST /api/groups/{id}/move", a.apiMoveGroup)
 	mux.HandleFunc("DELETE /api/groups/{id}", a.apiDeleteGroup)
 	mux.HandleFunc("POST /api/sync", a.apiSync)
@@ -556,6 +558,7 @@ func (a *App) apiDeleteReplays(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		a.adjustCounts(rep.GroupID, "")
+		a.groupStats.clear()
 		log.Printf("Replay %s auf ballchasing gelöscht", id)
 		return a.store.DeleteReplay(id)
 	})
@@ -650,6 +653,72 @@ func (a *App) apiGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"groups": groups, "unsorted": len(a.inboxReplays()), "syncing": a.Syncing(),
 		"synced": a.store.Meta("groups_synced")})
+}
+
+// statsCache keeps ballchasing's analysis of folders for a few minutes, so
+// switching between folders does not ask again each time.
+type statsCache struct {
+	mu   sync.Mutex
+	list map[string]cachedStats
+}
+
+type cachedStats struct {
+	at  time.Time
+	raw []byte
+}
+
+func (c *statsCache) get(id string, now time.Time) ([]byte, time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s, ok := c.list[id]
+	if !ok || now.Sub(s.at) > 5*time.Minute {
+		return nil, time.Time{}, false
+	}
+	return s.raw, s.at, true
+}
+
+func (c *statsCache) put(id string, raw []byte, at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.list == nil {
+		c.list = map[string]cachedStats{}
+	}
+	c.list[id] = cachedStats{at, raw}
+}
+
+// clear forgets everything: moved replays change the numbers of their old
+// and new folders and of all folders above them.
+func (c *statsCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.list = nil
+}
+
+// apiGroupStats returns what ballchasing computes for a folder: totals and
+// averages per game of every player in its replays. fresh skips the cache.
+func (a *App) apiGroupStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	raw, at, ok := a.groupStats.get(id, a.now())
+	if !ok || r.URL.Query().Get("fresh") != "" {
+		c := a.currentClient()
+		if c == nil {
+			writeJSON(w, http.StatusBadRequest, errBody("nicht mit ballchasing verbunden"))
+			return
+		}
+		var err error
+		if raw, err = c.GetGroup(r.Context(), id); err != nil {
+			fail(w, err)
+			return
+		}
+		at = a.now()
+		var g struct {
+			Status string `json:"status"`
+		}
+		if json.Unmarshal(raw, &g); g.Status == "ok" { // unfinished numbers are asked for again
+			a.groupStats.put(id, raw, at)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"group": json.RawMessage(raw), "fetched": at})
 }
 
 func (a *App) apiCreateGroup(w http.ResponseWriter, r *http.Request) {

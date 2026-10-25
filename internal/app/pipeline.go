@@ -284,6 +284,7 @@ func (a *App) Move(ctx context.Context, ids []string, groupID string, manual boo
 		}
 		a.store.SetReplayGroup(id, groupID, leaf)
 		a.adjustCounts(r.GroupID, groupID)
+		a.groupStats.clear()
 		facts := rules.FactsOf(r, me)
 		a.store.PutDecision(store.Decision{ReplayID: id, PlaylistID: facts.PlaylistID, Mates: facts.Mates, GroupID: groupID, Manual: manual})
 	}
@@ -394,6 +395,7 @@ func (a *App) MoveGroup(ctx context.Context, id, parent string) error {
 	for _, x := range byID {
 		a.store.PutGroup(x)
 	}
+	a.groupStats.clear()
 	to := "oberste Ebene"
 	if parent != "" {
 		to = fmt.Sprintf("%q", a.groupPath(groups, parent))

@@ -522,6 +522,53 @@ func TestDeleteOnlyEmptyFolders(t *testing.T) {
 	}
 }
 
+func TestFolderStats(t *testing.T) {
+	ta := newTestApp(t, nil)
+	liga := ta.fake.AddGroup(ballchasingtest.Group{Name: "Liga"})
+	archiv := ta.fake.AddGroup(ballchasingtest.Group{Name: "Archiv"})
+	ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private", Group: liga,
+		Blue:   []ballchasingtest.Player{{Name: "Jamie", PID: "steam:" + ta.fake.Me.SteamID, Goals: 2, Shots: 4}},
+		Orange: []ballchasingtest.Player{{Name: "Gegner", PID: "epic:x", Goals: 1, Shots: 1}}})
+	ta.syncAll(context.Background(), true)
+
+	type stats struct {
+		Group struct {
+			Status  string `json:"status"`
+			Players []struct {
+				Platform   string `json:"platform"`
+				Name       string `json:"name"`
+				Cumulative struct {
+					Games int `json:"games"`
+					Wins  int `json:"wins"`
+				} `json:"cumulative"`
+			} `json:"players"`
+		} `json:"group"`
+		Fetched time.Time `json:"fetched"`
+	}
+	var first, again, after stats
+	if code := ta.call("GET", "/api/groups/"+liga+"/stats", "", &first); code != 200 {
+		t.Fatalf("stats: %d", code)
+	}
+	if first.Group.Status != "ok" || len(first.Group.Players) != 2 {
+		t.Fatalf("stats = %+v", first)
+	}
+	for _, p := range first.Group.Players {
+		if p.Name == "Jamie" && (p.Platform != "steam" || p.Cumulative.Games != 1 || p.Cumulative.Wins != 1) {
+			t.Errorf("Jamie = %+v", p)
+		}
+	}
+	ta.advance(time.Minute)
+	ta.call("GET", "/api/groups/"+liga+"/stats", "", &again)
+	if !again.Fetched.Equal(first.Fetched) {
+		t.Error("asked ballchasing again within a minute")
+	}
+	ta.call("POST", "/api/groups/"+liga+"/move", `{"parent":"`+archiv+`"}`, nil)
+	ta.call("GET", "/api/groups/"+liga+"/stats", "", &after)
+	if after.Fetched.Equal(first.Fetched) {
+		t.Error("moving folders kept the old numbers")
+	}
+}
+
 func TestMoveFolders(t *testing.T) {
 	ta := newTestApp(t, nil)
 	liga := ta.fake.AddGroup(ballchasingtest.Group{Name: "Liga"})
