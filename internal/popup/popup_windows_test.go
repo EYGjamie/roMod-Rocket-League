@@ -76,7 +76,7 @@ func TestPaint(t *testing.T) {
 	start := time.Now()
 	for _, dpi := range []uint32{96, 144} {
 		q := &window{dpi: dpi, hot: 1, started: start, quick: &Quick{Title: "Ranked Doubles (2s) · Champions Field · Sieg 3:1",
-			Target: "2s Ranked", Options: [4]string{"Liga 2026 › Spieltag 3", "Scrims", "", "Eingang"}, Seconds: 10}}
+			Target: "2s Ranked", Options: [4]string{"Liga 2026 › Spieltag 3", "Scrims", "", "Unsortiert"}, Seconds: 10}}
 		img := render(t, m, q, start.Add(4*time.Second))
 		if distinctColors(img) < 10 || len(q.hits) != 3 {
 			t.Errorf("quick sort at %d dpi: %d colors, %d hits", dpi, distinctColors(img), len(q.hits))

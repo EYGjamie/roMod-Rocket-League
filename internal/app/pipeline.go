@@ -172,7 +172,7 @@ func (a *App) notifyUploaded(r store.Replay, folder string) {
 	case folder != "":
 		body += " → " + folder
 	default:
-		body += " → Eingang"
+		body += " → Unsortiert"
 	}
 	link := "https://ballchasing.com/replay/" + r.ID
 	actions := []ToastAction{{Label: "Auf ballchasing öffnen", Run: func() { a.desk.OpenBrowser(link) }}}
@@ -387,7 +387,7 @@ func (q *quickSorter) showNext() {
 	for i, o := range p.options {
 		view.Options[i] = o.Name
 	}
-	view.Options[3] = "Eingang"
+	view.Options[3] = "Unsortiert"
 	hk := q.a.opts.Hotkeys
 	if hk != nil {
 		for i, key := range cfg.QuickSortHotkeys {

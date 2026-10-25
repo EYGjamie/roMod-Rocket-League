@@ -313,29 +313,114 @@ export function folderOptions(groups, selected) {
   return out;
 }
 
-// pickFolder opens the folder dropdown at the anchor: suggestions first,
-// then all folders and a new one. Resolves to {id, name} or null.
-export async function pickFolder(anchor, { suggestions = [], current = '' } = {}) {
+// pickFolder opens the folder tree at the anchor: folders fold open, + adds
+// a subfolder and Enter creates it and picks it. exclude hides folders with
+// their subfolders, top names an entry for the top level. Resolves to
+// {id, name}, id '' for the top level, or null.
+export async function pickFolder(anchor, { current = '', exclude = [], top = '' } = {}) {
   const { groups } = await loadGroups();
+  document.querySelector('.menu')?.dismiss();
   return new Promise(resolve => {
-    const pick = (id, name) => () => resolve({ id, name });
-    const all = [];
-    const walk = (nodes, depth) => {
-      for (const g of nodes) {
-        all.push({ label: g.name, icon: depth ? 'folder-simple' : 'folders', count: g.indirect, pad: 8 + 20 * depth, on: g.id === current, run: pick(g.id, groupPath(groups, g.id)) });
-        walk(g.children, depth + 1);
-      }
+    const open = new Set();
+    for (let g = groups.find(x => x.id === current); g?.parent; g = groups.find(x => x.id === g.parent)) open.add(g.parent);
+    let creating = null; // parent of the new folder, '' for the top level
+    let name = '';
+    const m = h('div', { class: 'menu ftree', role: 'listbox', 'aria-label': 'Ordner' });
+    const finish = v => {
+      m.remove();
+      anchor.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('mousedown', outside, true);
+      document.removeEventListener('keydown', key, true);
+      resolve(v);
     };
-    walk(tree(groups), 0);
-    menu(anchor, [
-      ...(suggestions.length ? [{ section: 'Vorschläge' }, ...suggestions.map(s => ({ label: s.name, icon: 'sparkle', on: s.group_id === current, run: pick(s.group_id, s.name) })), '-'] : []),
-      { section: 'Alle Ordner' }, ...all, all.length ? '-' : null,
-      { label: 'Neuer Ordner', icon: 'folder-simple-plus', accent: true, run: async () => {
-        const name = await promptDialog('Neuer Ordner', 'Name des Ordners auf oberster Ebene');
-        const g = name && await run(() => api('/api/groups', { method: 'POST', body: { name, parent: '' } }), null, 'Ordner wird angelegt');
-        resolve(g ? { id: g.id, name } : null);
-      } },
-    ], { onDismiss: () => resolve(null) });
+    m.dismiss = () => finish(null);
+    const outside = e => {
+      if (m.contains(e.target)) return;
+      if (anchor.contains(e.target)) { // a click on the anchor only closes
+        const eat = ev => ev.stopImmediatePropagation();
+        anchor.addEventListener('click', eat, true);
+        document.addEventListener('mouseup', () => setTimeout(() => anchor.removeEventListener('click', eat, true)), { once: true });
+      }
+      finish(null);
+    };
+    const key = e => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        if (creating !== null) { creating = null; render(); } else { finish(null); anchor.focus(); }
+        return;
+      }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' || e.target.matches('input')) return;
+      const opts = [...m.querySelectorAll('[role=option]')];
+      const i = opts.indexOf(document.activeElement);
+      opts[(i + (e.key === 'ArrowDown' ? 1 : opts.length - 1)) % opts.length]?.focus();
+      e.preventDefault();
+    };
+    const pick = id => () => finish({ id, name: groupPath(groups, id) });
+    async function create() {
+      const n = name.trim();
+      if (!n) return;
+      const parent = creating;
+      const g = await run(() => api('/api/groups', { method: 'POST', body: { name: n, parent } }), null, `Ordner „${n}“ wird angelegt`);
+      if (g) finish({ id: g.id, name: parent ? groupPath(groups, parent) + ' › ' + n : n });
+    }
+    const newRow = (parent, depth) => h('div', { class: 'new', style: { paddingLeft: 8 + depth * 16 + 'px' } }, ico('folder-simple-plus'),
+      h('input', { class: 'input', value: name, 'aria-label': 'Name des neuen Ordners',
+        placeholder: parent ? 'Unterordner in ' + groups.find(x => x.id === parent).name : 'Neuer Ordner',
+        oninput: e => { name = e.target.value; }, onkeydown: e => { if (e.key === 'Enter') { e.preventDefault(); create(); } } }));
+    const startNew = parent => e => {
+      e.stopPropagation();
+      creating = parent;
+      name = '';
+      if (parent) open.add(parent);
+      render();
+    };
+
+    function render() {
+      const rows = [];
+      const walk = (nodes, depth) => {
+        for (const g of nodes) {
+          if (exclude.includes(g.id)) continue;
+          const kids = g.children.some(c => !exclude.includes(c.id));
+          const shut = !open.has(g.id);
+          rows.push(h('div', { class: 'trow' + (g.id === current ? ' on' : '') },
+            h('button', { class: 'fold', tabindex: -1, style: { marginLeft: 4 + depth * 16 + 'px', visibility: kids ? 'visible' : 'hidden' },
+              'aria-label': (shut ? 'Ausklappen: ' : 'Einklappen: ') + g.name, 'aria-expanded': String(!shut),
+              onclick: e => { e.stopPropagation(); shut ? open.add(g.id) : open.delete(g.id); render(); } }, ico(shut ? 'caret-right' : 'caret-down')),
+            h('button', { role: 'option', 'aria-selected': String(g.id === current), onclick: pick(g.id),
+              onkeydown: e => { if (kids && (e.key === 'ArrowRight' && shut || e.key === 'ArrowLeft' && !shut)) { shut ? open.add(g.id) : open.delete(g.id); render(); m.querySelector(`[data-id="${g.id}"]`)?.focus(); } },
+              'data-id': g.id }, ico(kids ? 'folders' : 'folder-simple'), h('span', null, g.name), h('span', { class: 'count' }, g.indirect || '')),
+            h('button', { class: 'add', tabindex: -1, title: `Unterordner in „${g.name}“ anlegen`, 'aria-label': `Unterordner in „${g.name}“ anlegen`, onclick: startNew(g.id) }, ico('plus'))));
+          if (creating === g.id) rows.push(newRow(g.id, depth + 1));
+          if (!shut) walk(g.children, depth + 1);
+        }
+      };
+      walk(tree(groups), 0);
+      fill(m,
+        top ? h('div', { class: 'trow' + (current === '' ? ' on' : '') },
+          h('button', { role: 'option', onclick: () => finish({ id: '', name: top }) }, ico('arrow-up'), h('span', null, top))) : null,
+        top && rows.length ? h('hr') : null,
+        rows.length ? rows : top ? null : h('div', { class: 'sec' }, 'Noch keine Ordner'),
+        h('hr'),
+        creating === '' ? newRow('', 0)
+          : h('button', { class: 'accent', onclick: startNew('') }, ico('folder-simple-plus'), h('span', null, 'Neuer Ordner')),
+        creating !== null ? h('div', { class: 'hint' }, 'Enter legt an und verschiebt, Esc bricht ab') : null);
+      m.querySelector('.new input')?.focus();
+    }
+
+    render();
+    document.body.append(m);
+    anchor.setAttribute('aria-expanded', 'true');
+    // the list grows on unfolding, away from the anchor
+    const r = anchor.getBoundingClientRect();
+    const below = innerHeight - r.bottom - 12;
+    const up = m.offsetHeight > below && r.top > below;
+    m.style.maxHeight = Math.min(360, up ? r.top - 12 : below) + 'px';
+    m.style.left = Math.max(8, Math.min(r.left, innerWidth - m.offsetWidth - 8)) + 'px';
+    if (up) m.style.bottom = innerHeight - r.top + 8 + 'px';
+    else m.style.top = r.bottom + 4 + 'px';
+    document.addEventListener('mousedown', outside, true);
+    document.addEventListener('keydown', key, true);
+    (m.querySelector('[aria-selected=true]') || m.querySelector('[role=option]') || m.querySelector('button'))?.focus();
   });
 }
 

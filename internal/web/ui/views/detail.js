@@ -107,7 +107,7 @@ function overview(r, d, also) {
   const info = [['Replay Name', r.title], ['Playlist', plName(r.playlist_id, r.playlist)], ['Map', r.map],
     ['Dauer', fmt.dur(r.duration) + (r.overtime ? ' (Verlängerung' + (d.overtime_seconds ? ' ' + fmt.dur(d.overtime_seconds) : '') + ')' : '')],
     ['Gespielt', fmt.day(r.date) + ', ' + fmt.clock(r.date)], ['Server', [d.server?.name, d.server?.region].filter(Boolean).join(', ') || '–'],
-    ['Ordner', r.own ? r.group || 'Eingang' : '–'], ['Sichtbarkeit', visibilityNames[r.visibility] || r.visibility],
+    ['Ordner', r.own ? r.group || 'Unsortiert' : '–'], ['Sichtbarkeit', visibilityNames[r.visibility] || r.visibility],
     ['Hochgeladen', 'von ' + r.uploader + (also.length ? ', auch von ' + also.map(a => a.uploader).join(', ') : '')]];
   const players = [...r.blue.players.map(p => ({ ...p, color: 'blue' })), ...r.orange.players.map(p => ({ ...p, color: 'orange' }))];
   const core = (p, k) => p.core ? p[k] : '–';

@@ -135,11 +135,11 @@ Unter Windows öffnet ein **Linksklick** das Overlay und ein **Rechtsklick** das
 ### Nach jedem Match
 
 1. Das Spiel speichert das Replay (dank der vorgemerkten Speichern-Taste), das Tool lädt es hoch und wartet, bis ballchasing es verarbeitet hat.
-2. Passt eine Regel, erscheint das **Schnell-Einordnen**: Zielordner, Countdown (Standard 10 s) und bis zu drei Alternativen. **Strg+Alt+1–3** wählt eine Alternative, **Strg+Alt+4** schickt das Replay in den Eingang (alle vier Tasten lassen sich unter Einstellungen → Hotkeys ändern); läuft der Countdown ab, gilt der Regel-Ordner.
+2. Passt eine Regel, erscheint das **Schnell-Einordnen**: Zielordner, Countdown (Standard 10 s) und bis zu drei Alternativen. **Strg+Alt+1–3** wählt eine Alternative, **Strg+Alt+4** lässt das Replay unsortiert (alle vier Tasten lassen sich unter Einstellungen → Hotkeys ändern); läuft der Countdown ab, gilt der Regel-Ordner.
    - Windows: ein kleines Fenster oben rechts über dem Spiel, das dem Spiel nie den Fokus nimmt.
    - Linux: eine Benachrichtigung mit Knöpfen. Benachrichtigungen zeigen höchstens drei Knöpfe; bei drei Alternativen bleibt die dritte bei ihrem Hotkey (Standard Strg+Alt+3).
    - macOS: Mitteilungen haben keine Knöpfe, die Regel ordnet deshalb sofort ein.
-3. Ohne passende Regel landet das Replay im **Eingang**.
+3. Ohne passende Regel bleibt das Replay **unsortiert**; der Verlauf markiert es so, und das Verlauf-Symbol zeigt einen Punkt.
 4. Eine kurze **Benachrichtigung** sagt, wohin es ging. Benachrichtigungen werden zurückgehalten, solange ein Match läuft. Nach 30 Minuten ohne Spiel (oder wenn Rocket League geschlossen wird) gibt es eine Zusammenfassung der Session.
 
 Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vordergrund war, oder auf dem Mac immer), gibt es am Matchende einen Warnton. Dann im Spiel „Replay speichern“ wählen; der Upload passiert trotzdem automatisch.
@@ -149,8 +149,7 @@ Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vorde
 | Bereich | Inhalt |
 |---|---|
 | Übersicht | Warteschlange und letzte Uploads in einer Tabelle (Alle, Wartet, Fehler, Hochgeladen, Ignoriert), Pause, fehlgeschlagene Uploads erneut senden oder dauerhaft ignorieren, Replays hochladen (auch per Drag & Drop auf die Seite). Die Statusleiste unten zeigt das Upload-Kontingent, Probleme mit ballchasing und die Pause |
-| Eingang | alles ohne Ordner, mit Vorschlag pro Replay und Ordnerauswahl je Zeile; alle Vorschläge auf einmal übernehmen oder eine Auswahl in einen Ordner verschieben |
-| Verlauf | alle Replays deines Kontos und die Spiele mit dir, die Mitspieler hochgeladen haben (Duplikate nur einmal), nach Session oder als Liste. Suche nach Map, Playlist oder Mitspieler; eine Session auf einmal verschieben |
+| Verlauf | alle Replays deines Kontos und die Spiele mit dir, die Mitspieler hochgeladen haben (Duplikate nur einmal), nach Session oder als Liste. Suche nach Map, Playlist, Mitspieler oder Ordner („Unsortiert“ findet alles ohne Ordner). Replays einzeln oder eine ganze Session auswählen und über „Verschieben nach“ in einen Ordner legen, auch in einen dort neu angelegten |
 | Replay-Details | Überblick mit Spielern und Ballbesitz, dazu Kern, Boost, Bewegung, Position und Demos im Vergleich mit Lobby, Mitspielern oder Gegnern (relativ oder absolut) sowie Kamera & Auto. Ins Spiel laden, Sichtbarkeit, Verschieben und Löschen |
 | Statistik | 7 Tage, 14 Tage, Monat oder Gesamt: Spiele, Siegquote, Bilanz, Spiele pro Tag, Verteilung nach Playlist, beste Maps |
 | Ordner | der ballchasing-Ordnerbaum mit Anzahl und Filter, neue Ordner und Unterordner, Replays per Auswahl oder Drag & Drop verschieben und ihre Sichtbarkeit ändern |
@@ -204,7 +203,7 @@ romod -config ~/rl/config.json
 | `mark_hold_ms` | `1200` | wie lange die Taste gehalten wird (100 bis 5000) |
 | `gui_hotkey` | `Ctrl+Alt+B` | Overlay (oder die Oberfläche) öffnen; leer = kein Hotkey |
 | `pause_hotkey` | `Ctrl+Alt+P` | pausieren und fortsetzen |
-| `quick_sort_hotkeys` | `["Ctrl+Alt+1", …, "Ctrl+Alt+4"]` | Schnell-Einordnen: Alternativen 1–3 und Eingang; leer = kein Hotkey |
+| `quick_sort_hotkeys` | `["Ctrl+Alt+1", …, "Ctrl+Alt+4"]` | Schnell-Einordnen: Alternativen 1–3 und Unsortiert; leer = kein Hotkey |
 | `notify_uploaded`, `notify_failed`, `notify_session` | `true` | Benachrichtigungen |
 | `quick_sort` | `true` | Schnell-Einordnen nach dem Upload; aus = Regeln ordnen ohne Rückfrage ein |
 | `quick_sort_seconds` | `10` | Countdown (3 bis 60) |

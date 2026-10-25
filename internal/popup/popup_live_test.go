@@ -26,7 +26,7 @@ func TestLiveWindows(t *testing.T) {
 	}
 	m := New()
 	before := windows.GetForegroundWindow()
-	m.ShowQuickSort(Quick{Title: "Test · DFH Stadium · Sieg 3:1", Target: "2s Ranked", Options: [4]string{"Scrims", "", "", "Eingang"}, Seconds: 5}, func(int) {})
+	m.ShowQuickSort(Quick{Title: "Test · DFH Stadium · Sieg 3:1", Target: "2s Ranked", Options: [4]string{"Scrims", "", "", "Unsortiert"}, Seconds: 5}, func(int) {})
 	m.Toast(Toast{Title: "Replay hochgeladen", Body: "Testbenachrichtigung", Actions: []Action{{Label: "OK"}}})
 	time.Sleep(800 * time.Millisecond)
 

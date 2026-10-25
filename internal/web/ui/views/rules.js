@@ -124,7 +124,7 @@ export async function mount(root, ctx) {
       h('div', { class: 'g-rule rule-h' }, ['#', 'Playlists', 'Mitspieler', 'Ordner', 'Aktiv'].map(t => h('span', null, t))),
       data.rules.map((r, i) => editing === i ? editor(i + 1) : ruleRow(r, i)),
       editing === 'new' ? editor(data.rules.length + 1) : null,
-      data.rules.length || editing === 'new' ? null : h('div', { class: 'empty' }, 'Noch keine Regeln. Ohne Regel landet jedes Replay im Eingang.'));
+      data.rules.length || editing === 'new' ? null : h('div', { class: 'empty' }, 'Noch keine Regeln. Ohne Regel landet jedes Replay unter „Unsortiert“ im Verlauf.'));
   }
 
   async function load() {

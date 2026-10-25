@@ -94,7 +94,7 @@ func (o *Overlay) Toggle() {
 }
 
 // Show opens the overlay in front, at a view of the interface such as
-// "eingang" if route is not empty.
+// "statistik" if route is not empty.
 func (o *Overlay) Show(route string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()

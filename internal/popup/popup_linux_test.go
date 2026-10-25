@@ -153,13 +153,13 @@ func TestQuickSortButtons(t *testing.T) {
 	picked := make(chan string, 4)
 	pick := func(choice int) { picked <- string(rune('0' + choice)) }
 	m.ShowQuickSort(Quick{Title: "3s Ranked · Mannfield · Sieg 2:0", Target: "Ranked › Threes",
-		Options: [4]string{"Privat", "Training", "Casual", "Eingang"}, Seconds: 10}, pick)
+		Options: [4]string{"Privat", "Training", "Casual", "Unsortiert"}, Seconds: 10}, pick)
 	n := s.last(t)
 	if n.summary != "Einordnen → Ranked › Threes" || !strings.Contains(n.body, "Ohne Auswahl in 10 s: Ranked › Threes") || n.timeout != 10000 {
 		t.Errorf("shown %+v", n)
 	}
 	// at most three buttons: the inbox stays, the third alternative goes
-	if want := []string{"1", "Privat", "2", "Training", "4", "Eingang"}; !slices.Equal(n.actions, want) {
+	if want := []string{"1", "Privat", "2", "Training", "4", "Unsortiert"}; !slices.Equal(n.actions, want) {
 		t.Errorf("actions %q, want %q", n.actions, want)
 	}
 	if v, _ := n.hints["transient"].Value().(bool); !v {
@@ -168,7 +168,7 @@ func TestQuickSortButtons(t *testing.T) {
 	s.click(n.id, "4")
 	waitFor(t, picked, "4")
 
-	m.ShowQuickSort(Quick{Title: "x", Target: "y", Options: [4]string{"", "", "", "Eingang"}, Seconds: 5}, pick)
+	m.ShowQuickSort(Quick{Title: "x", Target: "y", Options: [4]string{"", "", "", "Unsortiert"}, Seconds: 5}, pick)
 	second := s.last(t)
 	m.HideQuickSort()
 	time.Sleep(100 * time.Millisecond)

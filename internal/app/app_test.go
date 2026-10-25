@@ -185,7 +185,7 @@ func TestUploadIsSortedByRuleAfterQuickSort(t *testing.T) {
 	ta.drop("ranked-doubles_a.replay")
 	ta.waitFor("quick sort prompt", func() bool { q, _, _ := ta.desk.snapshot(); return len(q) == 1 })
 	q, _, _ := ta.desk.snapshot()
-	if q[0].Target != "2s Ranked" || q[0].Options[3] != "Eingang" || !strings.Contains(q[0].Title, "Sieg 3:1") {
+	if q[0].Target != "2s Ranked" || q[0].Options[3] != "Unsortiert" || !strings.Contains(q[0].Title, "Sieg 3:1") {
 		t.Fatalf("prompt = %+v", q[0])
 	}
 	if g, ok := ta.fake.GroupByName("2s Ranked"); !ok || g.Parent != "" {
