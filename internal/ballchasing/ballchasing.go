@@ -337,6 +337,13 @@ func (b *Client) CreateGroup(ctx context.Context, name, parent string, clusters 
 	return r.ID, err
 }
 
+// SetParent moves a group with its replays and subgroups into another
+// group, or to the top level if parent is empty.
+func (b *Client) SetParent(ctx context.Context, id, parent string) error {
+	u := b.BaseURL + "/api/groups/" + url.PathEscape(id)
+	return b.call(ctx, "groups-write", http.MethodPatch, u, map[string]string{"parent": parent}, nil, http.StatusNoContent)
+}
+
 // DeleteGroup deletes a group on ballchasing.
 func (b *Client) DeleteGroup(ctx context.Context, id string) error {
 	return b.call(ctx, "groups-write", http.MethodDelete, b.BaseURL+"/api/groups/"+url.PathEscape(id), nil, nil, http.StatusNoContent)

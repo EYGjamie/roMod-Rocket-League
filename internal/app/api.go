@@ -57,6 +57,7 @@ func (a *App) handler() http.Handler {
 
 	mux.HandleFunc("GET /api/groups", a.apiGroups)
 	mux.HandleFunc("POST /api/groups", a.apiCreateGroup)
+	mux.HandleFunc("POST /api/groups/{id}/move", a.apiMoveGroup)
 	mux.HandleFunc("DELETE /api/groups/{id}", a.apiDeleteGroup)
 	mux.HandleFunc("POST /api/sync", a.apiSync)
 	mux.HandleFunc("GET /api/inbox", a.apiInbox)
@@ -670,6 +671,20 @@ func (a *App) apiCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, g)
+}
+
+func (a *App) apiMoveGroup(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Parent string `json:"parent"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if err := a.MoveGroup(r.Context(), r.PathValue("id"), in.Parent); err != nil {
+		fail(w, err)
+		return
+	}
+	ok(w)
 }
 
 // apiDeleteGroup only deletes empty folders: what ballchasing does with

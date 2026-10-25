@@ -152,7 +152,7 @@ Hat das Vormerken nicht geklappt (zum Beispiel weil ein anderes Fenster im Vorde
 | Verlauf | alle Replays deines Kontos und die Spiele mit dir, die Mitspieler hochgeladen haben (Duplikate nur einmal), nach Session oder als Liste. Suche nach Map, Playlist, Mitspieler oder Ordner („Unsortiert“ findet alles ohne Ordner). Replays einzeln oder eine ganze Session auswählen und über „Verschieben nach“ in einen Ordner legen, auch in einen dort neu angelegten |
 | Replay-Details | Überblick mit Spielern und Ballbesitz, dazu Kern, Boost, Bewegung, Position und Demos im Vergleich mit Lobby, Mitspielern oder Gegnern (relativ oder absolut) sowie Kamera & Auto. Ins Spiel laden, Sichtbarkeit, Verschieben und Löschen |
 | Statistik | 7 Tage, 14 Tage, Monat oder Gesamt: Spiele, Siegquote, Bilanz, Spiele pro Tag, Verteilung nach Playlist, beste Maps |
-| Ordner | der ballchasing-Ordnerbaum mit Anzahl und Filter, neue Ordner und Unterordner, Replays per Auswahl oder Drag & Drop verschieben und ihre Sichtbarkeit ändern |
+| Ordner | der ballchasing-Ordnerbaum mit Anzahl und Filter, neue Ordner und Unterordner, Replays per Auswahl oder Drag & Drop verschieben und ihre Sichtbarkeit ändern. Ganze Ordner samt Inhalt per Drag & Drop auf einen anderen Ordner oder auf „oberste Ebene“ ziehen, oder über „…“ → „Verschieben nach“ |
 | Regeln | Regeln nach Playlist und Mitspielern, direkt in der Liste bearbeiten, Reihenfolge per Ziehen; die erste passende gewinnt. Vorschläge für neue Regeln aus deinem Einordnen |
 | Einstellungen | alles aus der Einrichtung; jede Änderung gilt sofort. Was ein System nicht kann (etwa Hotkeys auf dem Mac), blendet die Oberfläche aus und sagt warum |
 

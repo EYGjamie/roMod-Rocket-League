@@ -104,6 +104,7 @@ func New(t interface {
 	mux.HandleFunc("GET /api/replays/{id}/file", f.download)
 	mux.HandleFunc("GET /api/groups", f.listGroups)
 	mux.HandleFunc("POST /api/groups", f.createGroup)
+	mux.HandleFunc("PATCH /api/groups/{id}", f.patchGroup)
 	mux.HandleFunc("DELETE /api/groups/{id}", f.deleteGroup)
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != Token {
@@ -197,6 +198,17 @@ func (f *Server) GroupByName(name string) (Group, bool) {
 		}
 	}
 	return Group{}, false
+}
+
+// GroupOf returns a copy of the stored group.
+func (f *Server) GroupOf(id string) (Group, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g, ok := f.groups[id]
+	if !ok {
+		return Group{}, false
+	}
+	return *g, true
 }
 
 // Patched returns the group IDs the replay was moved to, in order.
@@ -549,6 +561,29 @@ func (f *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	id := f.AddGroup(Group{Name: in["name"], Parent: parent})
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "link": f.URL + "/api/groups/" + id})
+}
+
+// patchGroup moves a group; an empty parent puts it on the top level.
+func (f *Server) patchGroup(w http.ResponseWriter, r *http.Request) {
+	var in map[string]string
+	json.NewDecoder(r.Body).Decode(&in)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	g, ok := f.groups[r.PathValue("id")]
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "group not found"})
+		return
+	}
+	if parent, ok := in["parent"]; ok {
+		for p := parent; p != ""; p = f.groups[p].Parent {
+			if _, exists := f.groups[p]; !exists || p == g.ID {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid parent"})
+				return
+			}
+		}
+		g.Parent = parent
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (f *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {

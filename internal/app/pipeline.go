@@ -345,6 +345,66 @@ func (a *App) CreateGroup(ctx context.Context, name, parent string, clusters boo
 	return g, nil
 }
 
+// MoveGroup moves a folder with its replays and subfolders into another
+// folder, or to the top level if parent is empty.
+func (a *App) MoveGroup(ctx context.Context, id, parent string) error {
+	c := a.currentClient()
+	if c == nil {
+		return errors.New("nicht mit ballchasing verbunden")
+	}
+	groups, _ := a.store.Groups()
+	byID := map[string]store.Group{}
+	for _, g := range groups {
+		byID[g.ID] = g
+	}
+	g, ok := byID[id]
+	if !ok {
+		return errors.New("Ordner nicht gefunden")
+	}
+	if g.Parent == parent {
+		return nil
+	}
+	for p, seen := parent, 0; p != ""; p, seen = byID[p].Parent, seen+1 {
+		if _, ok := byID[p]; !ok || seen >= 10 {
+			return errors.New("Zielordner nicht gefunden")
+		}
+		if p == id {
+			return errors.New("ein Ordner kann nicht in sich selbst oder einen seiner Unterordner")
+		}
+	}
+	if err := c.SetParent(ctx, id, parent); err != nil {
+		return err
+	}
+	// the replays move along: out of the counts above the old place, into those above the new one
+	shift := func(from string, delta int) {
+		for seen := 0; from != "" && seen < 10; seen++ {
+			p, ok := byID[from]
+			if !ok {
+				return
+			}
+			p.Indirect += delta
+			byID[from] = p
+			from = p.Parent
+		}
+	}
+	shift(g.Parent, -g.Indirect)
+	shift(parent, g.Indirect)
+	g.Parent = parent
+	byID[id] = g
+	for _, x := range byID {
+		a.store.PutGroup(x)
+	}
+	to := "oberste Ebene"
+	if parent != "" {
+		to = fmt.Sprintf("%q", a.groupPath(groups, parent))
+	}
+	log.Printf("Ordner %q verschoben nach %s", g.Name, to)
+	a.events.publish("groups")
+	a.events.publish("replays") // paths changed
+	a.events.publish("rules")
+	return nil
+}
+
 type quickPrompt struct {
 	replay  store.Replay
 	target  store.Group

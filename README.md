@@ -28,7 +28,7 @@ roMod löst das, **ohne ins Spiel einzugreifen**: Es nutzt nur die offizielle [S
 - 📜 **Verlauf** aller deiner Replays, auch der Spiele, die Mitspieler hochgeladen haben. Durchsuchbar nach Session oder als Liste
 - 📊 **Statistik** über 7 Tage, 14 Tage, einen Monat oder alles: Siegquote, Bilanz, Playlists, beste Maps
 - 🔍 **Replay-Details** mit Boost, Bewegung, Position und Demos im Vergleich zu Lobby, Team oder Gegnern
-- 📁 **Ordner und Regeln** direkt in der Oberfläche verwalten, per Drag & Drop verschieben, Regelvorschläge aus deinem Einordnen
+- 📁 **Ordner und Regeln** direkt in der Oberfläche verwalten, Replays und ganze Ordner per Drag & Drop verschieben, Regelvorschläge aus deinem Einordnen
 - 📥 **Unsortiert:** was keine Regel einordnet, ist im Verlauf markiert und lässt sich per Auswahl in einen Ordner verschieben
 - ▶️ **Ins Spiel laden:** gelöschte Replays von ballchasing zurückholen und im Spiel anschauen
 - 🔄 **Automatische Updates** aus den GitHub-Releases nach kurzer Bestätigung von euch

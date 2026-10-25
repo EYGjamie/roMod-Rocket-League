@@ -296,7 +296,10 @@ kbd { font: 600 11px/1 var(--font); padding: 2px 5px; border-radius: 3px; border
 .node { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--radius); cursor: pointer; }
 .node.on { background: var(--color-accent-900); color: var(--color-accent); }
 .node:not(.on):hover { background: var(--color-surface); }
-.node.drop { outline: 1px dashed var(--color-accent); outline-offset: -1px; }
+.node.drop, .row.drop { outline: 1px dashed var(--color-accent); outline-offset: -1px; }
+.node.dragging { opacity: .45; }
+.rootdrop { flex: none; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 1px dashed var(--color-neutral-700); border-radius: var(--radius); color: var(--color-neutral-400); font-size: 12px; }
+.rootdrop.drop { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-900); }
 .node > button { flex: none; width: 14px; height: 14px; border: 0; padding: 0; background: transparent; cursor: pointer; display: grid; place-items: center; color: var(--color-neutral-500); font-size: 12px; }
 .side .sync { margin-top: auto; font-size: 12px; color: var(--color-neutral-500); padding: 0 4px; }
 .pane { padding: var(--space-4) var(--space-6); display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; overflow: auto; position: relative; }

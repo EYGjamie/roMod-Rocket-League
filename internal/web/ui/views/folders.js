@@ -1,6 +1,7 @@
 import { api, h, ico, fill, fmt, run, flash, menu, debounce, confirmDialog, promptDialog, pickFolder, moveTo, syncNow, loadGroups, tree, groupPath, visibilityNames, resultBadge, scoreLine, mates } from '../lib.js';
 
 const open = new Set();
+let dragged = ''; // ID of the folder being dragged
 
 export async function mount(root, ctx) {
   let selected = (() => { try { return sessionStorage.getItem('ordner'); } catch { return null; } })() || '';
@@ -14,6 +15,8 @@ export async function mount(root, ctx) {
   const nodes = h('div', { style: { display: 'contents' }, role: 'tree', 'aria-label': 'Ordner' });
   const sync = h('div', { class: 'sync' });
   const pane = h('div', { class: 'pane' });
+  const topZone = h('div', { class: 'rootdrop', hidden: true }, ico('arrow-up'), 'Hier ablegen: auf oberste Ebene');
+  dropTarget(topZone, null);
   root.append(h('div', { class: 'panes' },
     h('div', { class: 'side' },
       h('div', { class: 'head' }, h('h1', null, 'Ordner'),
@@ -22,7 +25,7 @@ export async function mount(root, ctx) {
           onclick: syncNow }, ico('arrows-clockwise'))),
       h('label', { class: 'search flat' }, ico('magnifying-glass'),
         h('input', { type: 'search', placeholder: 'Ordner filtern', 'aria-label': 'Ordner filtern', oninput: e => { filter = e.target.value.trim().toLowerCase(); renderTree(); } })),
-      h('div', { class: 'hsep' }), nodes, sync),
+      h('div', { class: 'hsep' }), nodes, topZone, sync),
     pane));
 
   async function newFolder(parent) {
@@ -32,15 +35,67 @@ export async function mount(root, ctx) {
     if (g) { if (parent) open.add(parent); select(g.id); }
   }
 
-  function dropTarget(el, g) {
-    el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('application/x-replays')) { e.preventDefault(); el.classList.add('drop'); } });
-    el.addEventListener('dragleave', () => el.classList.remove('drop'));
-    el.addEventListener('drop', async e => {
-      el.classList.remove('drop');
-      const raw = e.dataTransfer.getData('application/x-replays');
-      if (!raw) return;
+  // canMove says whether folder id may go into parent ('' is the top level):
+  // not into itself, one of its subfolders or where it already is.
+  function canMove(id, parent) {
+    const g = groups.find(x => x.id === id);
+    if (!g || g.parent === parent) return false;
+    for (let p = parent, n = 0; p && n < 10; p = groups.find(x => x.id === p)?.parent, n++) if (p === id) return false;
+    return true;
+  }
+
+  async function moveFolder(id, parent) {
+    const g = groups.find(x => x.id === id);
+    const where = parent ? `nach „${groupPath(groups, parent)}“` : 'auf die oberste Ebene';
+    if (await run(() => api(`/api/groups/${encodeURIComponent(id)}/move`, { method: 'POST', body: { parent } }),
+      `„${g.name}“ ${where} verschoben`, `„${g.name}“ wird ${where} verschoben`) && parent) open.add(parent);
+  }
+
+  // dragFolder lets el carry folder g to another folder.
+  function dragFolder(el, g) {
+    el.draggable = true;
+    el.addEventListener('dragstart', e => {
+      if (e.target !== el) return;
+      dragged = g.id;
+      e.dataTransfer.setData('application/x-group', g.id);
+      e.dataTransfer.effectAllowed = 'move';
+      el.classList.add('dragging');
+      topZone.hidden = !g.parent;
+    });
+    el.addEventListener('dragend', endDrag);
+  }
+
+  function endDrag() {
+    dragged = '';
+    topZone.hidden = true;
+    for (const el of root.querySelectorAll('.dragging, .drop')) el.classList.remove('dragging', 'drop');
+  }
+
+  // dropTarget takes replays and folders dropped on el, the folder g or the
+  // top level for null. hover runs when something rests on el for a moment.
+  function dropTarget(el, g, hover) {
+    const id = g ? g.id : '';
+    let wait = 0;
+    const takes = e => e.dataTransfer.types.includes('application/x-replays') ? !!g
+      : e.dataTransfer.types.includes('application/x-group') && !!dragged && canMove(dragged, id);
+    const leave = () => { el.classList.remove('drop'); clearTimeout(wait); wait = 0; };
+    el.addEventListener('dragover', e => {
+      if (!takes(e)) return;
       e.preventDefault();
-      if (await moveTo(JSON.parse(raw), { id: g.id, name: groupPath(groups, g.id) })) sel.clear();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drop');
+      if (hover && !wait) wait = setTimeout(hover, 700);
+    });
+    el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) leave(); });
+    el.addEventListener('drop', async e => {
+      leave();
+      if (!takes(e)) return;
+      e.preventDefault();
+      const replays = e.dataTransfer.getData('application/x-replays');
+      const folder = e.dataTransfer.getData('application/x-group');
+      endDrag();
+      if (replays) { if (await moveTo(JSON.parse(replays), { id, name: groupPath(groups, id) })) sel.clear(); }
+      else if (folder) moveFolder(folder, id);
     });
   }
 
@@ -48,7 +103,8 @@ export async function mount(root, ctx) {
     const kids = g.children.length > 0;
     const toggle = () => { if (kids) { open.has(g.id) ? open.delete(g.id) : open.add(g.id); renderTree(); } };
     const el = h('div', { class: 'node' + (g.id === selected ? ' on' : ''), role: 'treeitem', tabindex: 0, 'aria-selected': String(g.id === selected),
-      'aria-expanded': kids ? String(open.has(g.id)) : null, style: { paddingLeft: 8 + depth * 14 + 'px' }, title: `${g.direct} direkt, ${g.indirect} mit Unterordnern`,
+      'aria-expanded': kids ? String(open.has(g.id)) : null, style: { paddingLeft: 8 + depth * 14 + 'px' },
+      title: `${g.direct} direkt, ${g.indirect} mit Unterordnern. Ziehen zum Verschieben`,
       onclick: () => select(g.id),
       onkeydown: e => {
         if (e.key === 'Enter') select(g.id);
@@ -57,19 +113,30 @@ export async function mount(root, ctx) {
       h('button', { tabindex: -1, 'aria-label': 'Auf- oder zuklappen', onclick: e => { e.stopPropagation(); toggle(); } },
         ico(kids ? (open.has(g.id) ? 'caret-down' : 'caret-right') : 'dot-outline')),
       h('span', { class: 'grow ell' }, g.name), h('span', { class: 'sm n5 num' }, g.indirect));
-    dropTarget(el, g);
+    dragFolder(el, g);
+    // a closed folder opens while something rests on it; the tree is not
+    // redrawn for that, which would drop the dragged element
+    dropTarget(el, g, () => {
+      if (!kids || open.has(g.id) || filter) return;
+      open.add(g.id);
+      el.setAttribute('aria-expanded', 'true');
+      el.querySelector('button').replaceChildren(ico('caret-down'));
+      el.after(...rows(g.children, depth + 1));
+    });
     return el;
   }
 
-  function renderTree() {
+  function rows(list, depth) {
     const out = [];
-    const walk = (list, depth) => {
-      for (const g of list) {
-        if (!filter || g.name.toLowerCase().includes(filter)) out.push(node(g, filter ? 0 : depth));
-        if (filter || open.has(g.id)) walk(g.children, depth + 1);
-      }
-    };
-    walk(tree(groups), 0);
+    for (const g of list) {
+      if (!filter || g.name.toLowerCase().includes(filter)) out.push(node(g, filter ? 0 : depth));
+      if (filter || open.has(g.id)) out.push(...rows(g.children, depth + 1));
+    }
+    return out;
+  }
+
+  function renderTree() {
+    const out = rows(tree(groups), 0);
     fill(nodes, out.length ? out : h('div', { class: 'n5', style: { padding: '5px 8px' } }, groups.length ? 'Kein Ordner passt.' : 'Noch keine Ordner.'));
     sync.textContent = ctx.state.syncing ? 'Abgleich läuft …' : synced ? 'Abgeglichen ' + fmt.rel(synced) : '';
   }
@@ -94,26 +161,35 @@ export async function mount(root, ctx) {
     const subs = groups.filter(x => x.parent === g.id).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     const ruleText = id => { const i = rules.findIndex(r => r.target_id === id); return i < 0 ? 'von Hand gefüllt' : `Regel ${i + 1} füllt diesen Ordner`; };
     const ids = [...sel];
-    fill(pane,
-      h('div', { class: 'head tight', style: { flexWrap: 'wrap' } },
-        g.parent ? h('span', { class: 'n4', style: { fontSize: '13px' } }, groupPath(groups, g.parent) + ' ›') : null,
-        h('span', { style: { fontSize: '18px' } }, g.name),
-        h('span', { class: 'end actions' },
-          h('a', { class: 'btn btn-secondary', href: 'https://ballchasing.com/group/' + g.id, target: '_blank', rel: 'noopener noreferrer' }, ico('arrow-square-out'), 'ballchasing'),
-          h('button', { class: 'btn btn-secondary btn-icon', 'aria-label': 'Weitere Aktionen', title: 'Weitere Aktionen', onclick: e => menu(e.currentTarget, [
-            { label: 'Neuer Unterordner …', icon: 'folder-simple-plus', run: () => newFolder(g.id) },
-            '-',
-            { label: 'Ordner löschen …', icon: 'trash', danger: true, run: async () => {
-              if (g.indirect > 0 || subs.length) return flash('Nur leere Ordner ohne Unterordner lassen sich löschen.', 'err');
-              if (await confirmDialog('Ordner löschen', `„${g.name}“ wird auf ballchasing gelöscht.`, 'Löschen', true)
-                && await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht', `Ordner „${g.name}“ wird gelöscht`)) select(g.parent);
-            } },
-          ], { width: 220 }) }, ico('dots-three')))),
+    const head = h('div', { class: 'head tight', style: { flexWrap: 'wrap' } },
+      g.parent ? h('span', { class: 'n4', style: { fontSize: '13px' } }, groupPath(groups, g.parent) + ' ›') : null,
+      h('span', { style: { fontSize: '18px' } }, g.name),
+      h('span', { class: 'end actions' },
+        h('a', { class: 'btn btn-secondary', href: 'https://ballchasing.com/group/' + g.id, target: '_blank', rel: 'noopener noreferrer' }, ico('arrow-square-out'), 'ballchasing'),
+        h('button', { class: 'btn btn-secondary btn-icon', 'data-more': '', 'aria-label': 'Weitere Aktionen', title: 'Weitere Aktionen', onclick: e => menu(e.currentTarget, [
+          { label: 'Neuer Unterordner …', icon: 'folder-simple-plus', run: () => newFolder(g.id) },
+          { label: 'Verschieben nach …', icon: 'folder-simple', run: async () => {
+            const f = await pickFolder(pane.querySelector('[data-more]'), { current: g.parent, exclude: [g.id], top: g.parent ? 'Oberste Ebene' : '' });
+            if (f && f.id !== g.parent) moveFolder(g.id, f.id);
+          } },
+          '-',
+          { label: 'Ordner löschen …', icon: 'trash', danger: true, run: async () => {
+            if (g.indirect > 0 || subs.length) return flash('Nur leere Ordner ohne Unterordner lassen sich löschen.', 'err');
+            if (await confirmDialog('Ordner löschen', `„${g.name}“ wird auf ballchasing gelöscht.`, 'Löschen', true)
+              && await run(() => api('/api/groups/' + g.id, { method: 'DELETE' }), 'Ordner gelöscht', `Ordner „${g.name}“ wird gelöscht`)) select(g.parent);
+          } },
+        ], { width: 220 }) }, ico('dots-three'))));
+    fill(pane, head,
       subs.length || items.length ? h('div', { class: 'rows' },
-        subs.map(s => h('div', { class: 'row g-folder', onclick: () => { open.add(g.id); select(s.id); } },
-          h('span'), h('span', { class: 'fbox' }, ico('folder-simple')), h('span', { class: 'ell' }, s.name),
-          h('span', { class: 'ell n4' }, `${s.indirect} Replays`), h('span', { class: 'ell sm n5' }, ruleText(s.id)), h('span'),
-          h('i', { class: 'ph ph-caret-right n5', style: { justifySelf: 'end' } }))),
+        subs.map(s => {
+          const el = h('div', { class: 'row g-folder', title: 'Öffnen, oder ziehen zum Verschieben', onclick: () => { open.add(g.id); select(s.id); } },
+            h('span'), h('span', { class: 'fbox' }, ico('folder-simple')), h('span', { class: 'ell' }, s.name),
+            h('span', { class: 'ell n4' }, `${s.indirect} Replays`), h('span', { class: 'ell sm n5' }, ruleText(s.id)), h('span'),
+            h('i', { class: 'ph ph-caret-right n5', style: { justifySelf: 'end' } }));
+          dragFolder(el, s);
+          dropTarget(el, s);
+          return el;
+        }),
         items.map(row)) : h('div', { class: 'empty' }, 'In diesem Ordner liegen keine Replays.'),
       items.length < total ? h('button', { class: 'btn btn-secondary more', onclick: () => loadItems(true) }, 'Mehr laden') : null,
       ids.length ? h('div', { class: 'bulk' }, h('span', null, `${ids.length} ausgewählt`),
