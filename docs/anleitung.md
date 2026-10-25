@@ -114,6 +114,30 @@ Ein Release entsteht mit einem Tag:
 git tag v1.2.3 && git push origin v1.2.3
 ```
 
+### Signieren
+
+Smart App Control in Windows 11 blockiert unsignierte Programme, die Microsoft nicht kennt, und jede neue Version ist wieder unbekannt, auch nach einem Update. Deshalb lässt die CI zu jedem Tag die Windows-exe von [SignPath](https://signpath.org) signieren, kostenlos für Open-Source-Projekte; als Herausgeber steht „SignPath Foundation“ im Zertifikat. Einmal einrichten:
+
+1. Auf [signpath.org](https://signpath.org) bewerben. Dafür braucht die README einen Abschnitt „Code signing policy“ mit dem Wortlaut von SignPath, den Rollen im Team und einem Satz zum Datenschutz; alle im Team brauchen Zwei-Faktor-Anmeldung.
+2. In SignPath das Trusted Build System „GitHub.com“ mit dem Projekt verbinden und als Artefakt-Konfiguration eintragen (Name und Version stehen bei Tags in der exe):
+
+   ```xml
+   <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+     <parameters>
+       <parameter name="version" required="true" />
+     </parameters>
+     <zip-file>
+       <pe-file path="romod-windows-amd64.exe" product-name="roMod" product-version="${version}">
+         <authenticode-sign />
+       </pe-file>
+     </zip-file>
+   </artifact-configuration>
+   ```
+
+3. Auf GitHub unter Settings → Secrets and variables → Actions das Secret `SIGNPATH_API_TOKEN` (Token eines SignPath-Nutzers, der für die Signier-Richtlinie `release-signing` einreichen darf) und die Variablen `SIGNPATH_ORGANIZATION_ID` und `SIGNPATH_PROJECT_SLUG` anlegen.
+
+Danach wartet jeder Release-Lauf bis zu einer Stunde, bis der Auftrag auf signpath.io freigegeben ist, prüft die Signatur und hängt erst dann die exe an das Release. Ohne die Variable `SIGNPATH_ORGANIZATION_ID` bleibt die exe unsigniert.
+
 ## Benutzung
 
 ### Im Hintergrund
@@ -251,7 +275,7 @@ Meldungen stehen im Log, die letzte auch im Tooltip des Symbols. Fehler, wegen d
 | Hotkeys oder Speichern-Taste wirken nicht (Linux) | Sie brauchen X11 oder XWayland. Unter Wayland wirken sie nur, solange ein X11-Fenster wie das Spiel im Vordergrund ist. |
 | Keine Benachrichtigungen (macOS) | Sie kommen über AppleScript und erscheinen als „Skripteditor“. In den Systemeinstellungen unter Mitteilungen für „Skripteditor“ erlauben. |
 | Keine Benachrichtigungen (Linux) | Es läuft kein Benachrichtigungsdienst (bei schlanken Fenstermanagern etwa dunst oder mako starten). |
-| Windows meldet, dass die App blockiert wurde | Smart App Control blockiert unsignierte Programme, die Microsoft nicht kennt, und bewertet jede exe einzeln. Eine neu gebaute exe wird neu bewertet; dauerhaft hilft nur eine Code-Signatur. |
+| Windows meldet, dass die App blockiert wurde | Smart App Control blockiert unsignierte Programme, die Microsoft nicht kennt, und bewertet jede exe einzeln. Eine neu gebaute exe wird neu bewertet; dauerhaft hilft nur eine Code-Signatur (siehe [Signieren](#signieren)). |
 | macOS meldet, dass die App nicht geöffnet werden kann | Nur bei einer heruntergeladenen App (etwa aus den CI-Artefakten): im Finder Rechtsklick → Öffnen. Selbst gebaute Apps betrifft das nicht. |
 
 ## Verhalten im Detail

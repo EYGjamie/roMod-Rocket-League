@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # SignPath fetches the unsigned artifact of the run
 
 jobs:
   test:
@@ -39,8 +40,11 @@ jobs:
         run: |
           export VERSION=dev
           [ "$GITHUB_REF_TYPE" = tag ] && VERSION=${GITHUB_REF_NAME#v}
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           case "$RUNNER_OS" in
             Windows)
+              # the version in the file properties, SignPath checks it
+              [ "$VERSION" = dev ] || (cd cmd/romod && go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 --product-version=$VERSION --file-version=$VERSION)
               go build -trimpath -ldflags "-s -w -H windowsgui -X main.version=$VERSION" -o dist/romod-windows-amd64.exe ./cmd/romod ;;
             macOS)
               scripts/macos-app.sh
@@ -48,6 +52,41 @@ jobs:
             Linux)
               go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/romod-linux-amd64 ./cmd/romod ;;
           esac
+
+      # Smart App Control blocks unsigned programs Microsoft doesn't know, so
+      # a release has SignPath sign the exe (docs/anleitung.md#signieren).
+      # Without the variable SIGNPATH_ORGANIZATION_ID it stays unsigned.
+      - name: Upload for signing
+        id: unsigned
+        if: runner.os == 'Windows' && github.ref_type == 'tag' && vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows
+          path: dist/romod-windows-amd64.exe
+
+      - name: Sign
+        if: steps.unsigned.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(env.VERSION) }}
+          # every release waits for the approval on signpath.io
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/signed
+
+      - name: Check signature
+        if: steps.unsigned.outcome == 'success'
+        shell: pwsh
+        run: |
+          Move-Item -Force dist/signed/romod-windows-amd64.exe dist/
+          $sig = Get-AuthenticodeSignature dist/romod-windows-amd64.exe
+          if ($sig.Status -ne 'Valid') { throw "Signatur: $($sig.Status) $($sig.StatusMessage)" }
+          $sig.SignerCertificate.Subject
 
       - uses: actions/upload-artifact@v4
         with:
@@ -67,6 +106,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: romod-* # not the unsigned exe
           merge-multiple: true
       - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
         env:
