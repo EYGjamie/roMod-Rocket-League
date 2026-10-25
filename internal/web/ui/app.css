@@ -60,6 +60,9 @@ a:hover { color: var(--color-accent-200); }
 #nav .ping { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); }
 #view { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page { flex: 1; min-height: 0; overflow: auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+/* the page scrolls instead: shrinking would squeeze one-line elements with
+   overflow hidden, such as the replay name, to nothing */
+.page > *, .pane > * { flex-shrink: 0; }
 #foot { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-6); padding: 0 var(--space-4); border-top: 1px solid var(--color-neutral-900); font-size: 12px; white-space: nowrap; overflow: hidden; color: var(--color-neutral-400); }
 #foot a { color: var(--color-err); text-decoration: none; }
 #foot a.upd { color: var(--color-accent-300); }
