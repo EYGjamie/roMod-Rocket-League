@@ -80,11 +80,16 @@ type Rule struct {
 	AllPlayers bool     `json:"all_players"` // all teammates must play instead of any
 	TargetID   string   `json:"target_id"`   // group ID, empty until created
 	TargetName string   `json:"target_name"` // name for creating the group
+	Subfolders string   `json:"subfolders"`  // DailySubfolders or empty
 }
+
+// DailySubfolders sorts into one subfolder of the target per day the game
+// was played, named like 2026-10-28.
+const DailySubfolders = "day"
 
 // Rules returns the rules in their order.
 func (s *Store) Rules() ([]Rule, error) {
-	rows, err := s.db.Query("SELECT id, pos, enabled, playlists, players, all_players, target_id, target_name FROM rules ORDER BY pos, id")
+	rows, err := s.db.Query("SELECT id, pos, enabled, playlists, players, all_players, target_id, target_name, subfolders FROM rules ORDER BY pos, id")
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +99,7 @@ func (s *Store) Rules() ([]Rule, error) {
 		var r Rule
 		var enabled, all int
 		var playlists, players string
-		if err := rows.Scan(&r.ID, &r.Pos, &enabled, &playlists, &players, &all, &r.TargetID, &r.TargetName); err != nil {
+		if err := rows.Scan(&r.ID, &r.Pos, &enabled, &playlists, &players, &all, &r.TargetID, &r.TargetName, &r.Subfolders); err != nil {
 			return nil, err
 		}
 		r.Enabled, r.AllPlayers = enabled != 0, all != 0
@@ -117,16 +122,16 @@ func (s *Store) PutRule(r *Rule) error {
 		if r.Pos == 0 {
 			s.db.QueryRow("SELECT COALESCE(MAX(pos), 0) + 1 FROM rules").Scan(&r.Pos)
 		}
-		res, err := s.db.Exec("INSERT INTO rules(pos, enabled, playlists, players, all_players, target_id, target_name) VALUES(?,?,?,?,?,?,?)",
-			r.Pos, boolInt(r.Enabled), toJSON(r.Playlists), toJSON(r.Players), boolInt(r.AllPlayers), r.TargetID, r.TargetName)
+		res, err := s.db.Exec("INSERT INTO rules(pos, enabled, playlists, players, all_players, target_id, target_name, subfolders) VALUES(?,?,?,?,?,?,?,?)",
+			r.Pos, boolInt(r.Enabled), toJSON(r.Playlists), toJSON(r.Players), boolInt(r.AllPlayers), r.TargetID, r.TargetName, r.Subfolders)
 		if err != nil {
 			return err
 		}
 		r.ID, err = res.LastInsertId()
 		return err
 	}
-	_, err := s.db.Exec("UPDATE rules SET pos=?, enabled=?, playlists=?, players=?, all_players=?, target_id=?, target_name=? WHERE id=?",
-		r.Pos, boolInt(r.Enabled), toJSON(r.Playlists), toJSON(r.Players), boolInt(r.AllPlayers), r.TargetID, r.TargetName, r.ID)
+	_, err := s.db.Exec("UPDATE rules SET pos=?, enabled=?, playlists=?, players=?, all_players=?, target_id=?, target_name=?, subfolders=? WHERE id=?",
+		r.Pos, boolInt(r.Enabled), toJSON(r.Playlists), toJSON(r.Players), boolInt(r.AllPlayers), r.TargetID, r.TargetName, r.Subfolders, r.ID)
 	return err
 }
 

@@ -283,6 +283,60 @@ func TestRulesSortRightAwayWithoutPrompt(t *testing.T) {
 	}
 }
 
+// A rule with daily subfolders sorts into one folder per day the game was
+// played, by the player's clock, and reuses it for that day's games.
+func TestDailySubfolders(t *testing.T) {
+	ta := newTestApp(t, func(c *config.Config) { c.QuickSort = false })
+	ta.store.PutRule(&store.Rule{Enabled: true, Playlists: []string{"ranked-doubles"}, TargetName: "2s Ranked", Subfolders: store.DailySubfolders})
+	cet := time.FixedZone("CET", 3600)
+	dates := map[string]time.Time{ // just after midnight: the day before in UTC
+		"ranked-doubles_a.replay": time.Date(2026, 3, 15, 0, 30, 0, 0, cet),
+		"ranked-doubles_b.replay": time.Date(2026, 3, 15, 20, 0, 0, 0, cet),
+		"ranked-doubles_c.replay": time.Date(2026, 3, 16, 18, 0, 0, 0, cet),
+	}
+	base := ta.fake.Template
+	ta.fake.Template = func(file string) ballchasingtest.Replay {
+		r := base(file)
+		r.Date = dates[file]
+		return r
+	}
+	for _, name := range []string{"ranked-doubles_a.replay", "ranked-doubles_b.replay", "ranked-doubles_c.replay"} {
+		ta.drop(name)
+		ta.waitFor("sorted "+name, func() bool {
+			f := ta.fileState(name)
+			r, _ := ta.fake.Replay(f.ReplayID)
+			return f.ReplayID != "" && r.Group != ""
+		})
+	}
+
+	parent, ok := ta.fake.GroupByName("2s Ranked")
+	if !ok || parent.Parent != "" {
+		t.Fatal("rule target was not created on the top level")
+	}
+	want := map[string]string{"ranked-doubles_a.replay": "2026-03-15", "ranked-doubles_b.replay": "2026-03-15", "ranked-doubles_c.replay": "2026-03-16"}
+	days := map[string]bool{}
+	for name, day := range want {
+		r, _ := ta.fake.Replay(ta.fileState(name).ReplayID)
+		g, _ := ta.fake.GroupOf(r.Group)
+		if g.Name != day || g.Parent != parent.ID {
+			t.Errorf("%s in %+v, want %s under 2s Ranked", name, g, day)
+		}
+		days[r.Group] = true
+	}
+	if len(days) != 2 {
+		t.Errorf("%d day folders, want 2", len(days))
+	}
+	ta.waitFor("notifications", func() bool { _, toasts, _ := ta.desk.snapshot(); return len(toasts) == 3 })
+	_, toasts, _ := ta.desk.snapshot()
+	if !strings.HasSuffix(toasts[2].Body, "→ 2s Ranked › 2026-03-16") {
+		t.Errorf("toasts = %+v", toasts)
+	}
+	rule, _ := ta.store.Rules()
+	if len(rule) != 1 || rule[0].Subfolders != store.DailySubfolders || rule[0].TargetID != parent.ID {
+		t.Errorf("rule after sorting = %+v", rule)
+	}
+}
+
 func TestSyncMergesOwnAndMatesReplays(t *testing.T) {
 	ta := newTestApp(t, nil)
 	me := "steam:" + ta.fake.Me.SteamID

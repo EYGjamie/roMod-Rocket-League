@@ -15,6 +15,8 @@ function playlistGroups(playlists) {
 }
 // chipName drops the group from the name: "Ranked 2s" is "2s" under Ranked.
 const chipName = p => plName(p.id, p.name).replace(/^(Ranked|Casual) (?=\d)/, '');
+// today as the server names day folders, e.g. "2026-10-28"
+const today = () => { const d = new Date(); return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map(n => String(n).padStart(2, '0')).join('-'); };
 
 export async function mount(root, ctx) {
   const page = h('div', { class: 'page', style: { gap: '0' } });
@@ -25,7 +27,7 @@ export async function mount(root, ctx) {
   let draft = null;
   let dragID = null;
 
-  const blank = () => ({ enabled: true, playlists: [], players: [], all_players: false, target_id: '', target_name: '' });
+  const blank = () => ({ enabled: true, playlists: [], players: [], all_players: false, target_id: '', target_name: '', subfolders: '' });
   const edit = i => {
     const r = data.rules[i];
     editing = i;
@@ -72,7 +74,8 @@ export async function mount(root, ctx) {
       h('span', { class: 'n5' }, i + 1),
       h('span', { class: 'ell' }, r.playlists?.length ? r.playlists.map((id, k) => plName(id, r.playlist_txt?.[k])).join(', ') : 'jede Playlist'),
       h('span', { class: 'ell n4' }, (r.player_txt || []).join(r.all_players ? ' und ' : ' oder ')),
-      h('span', { class: 'ell' }, r.target || '(Ordner fehlt)', r.target_id ? null : h('span', { class: 'n5' }, ' (neu)')),
+      h('span', { class: 'ell' }, r.target || '(Ordner fehlt)', r.target_id ? null : h('span', { class: 'n5' }, ' (neu)'),
+        r.subfolders === 'day' ? h('span', { class: 'n5' }, ' › pro Tag') : null),
       sw(r.enabled, v => run(() => api('/api/rules/' + r.id, { method: 'PUT', body: { ...r, enabled: v } })), 'Regel aktiv'));
     return el;
   }
@@ -107,7 +110,10 @@ export async function mount(root, ctx) {
           Object.assign(r, { target_id: e.target.value, target_name: groupPath(groups, e.target.value) });
         } },
           r.target_id ? null : h('option', { value: '', selected: true }, r.target_name ? r.target_name + ' (neu)' : 'Ordner wählen'),
-          folderOptions(groups, r.target_id), h('option', { value: '+' }, 'Neuer Ordner …'))),
+          folderOptions(groups, r.target_id), h('option', { value: '+' }, 'Neuer Ordner …')),
+        h('span', { class: 'lbl' }, 'Unterordner'),
+        h('div', { class: 'actions' }, seg([['', 'keine'], ['day', 'pro Tag']], r.subfolders || '', v => { r.subfolders = v; }, true),
+          h('span', { class: 'n5' }, `je Spieltag ein eigener Ordner wie „${today()}“`))),
       h('div', { class: 'actions' },
         h('button', { class: 'btn btn-ghost danger', onclick: remove }, ico('trash'), 'Löschen'), h('span', { class: 'grow' }),
         h('button', { class: 'btn btn-secondary', onclick: closeEditor }, 'Schließen'),

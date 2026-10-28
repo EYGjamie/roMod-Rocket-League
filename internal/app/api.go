@@ -1058,6 +1058,10 @@ func (a *App) apiSaveRule(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errBody("Zielordner fehlt"))
 		return
 	}
+	if rule.Subfolders != "" && rule.Subfolders != store.DailySubfolders {
+		writeJSON(w, http.StatusBadRequest, errBody("Unbekannte Unterordner-Einstellung"))
+		return
+	}
 	if err := a.store.PutRule(&rule); err != nil {
 		fail(w, err)
 		return

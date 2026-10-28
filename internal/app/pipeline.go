@@ -106,6 +106,9 @@ func (a *App) sortNew(ctx context.Context, r store.Replay) {
 		return
 	}
 	target, err := a.ruleTarget(ctx, rule)
+	if err == nil && rule.Subfolders == store.DailySubfolders {
+		target, err = a.dayFolder(ctx, target, r)
+	}
 	if err != nil {
 		log.Printf("Ordner %q anlegen: %v", rule.TargetName, err)
 		a.notifyUploaded(r, "")
@@ -150,6 +153,33 @@ func (a *App) ruleTarget(ctx context.Context, rule store.Rule) (store.Group, err
 	rule.TargetID = g.ID
 	a.store.PutRule(&rule)
 	a.events.publish("rules")
+	return g, nil
+}
+
+// dayFolder returns the subfolder of parent for the day the replay was
+// played, creating it on the first replay of that day. Its name is the
+// whole path, for the prompt and the notification.
+func (a *App) dayFolder(ctx context.Context, parent store.Group, r store.Replay) (store.Group, error) {
+	date := r.Date // in the player's time zone, straight from ballchasing
+	if date.IsZero() {
+		date = a.now()
+	}
+	day := date.Format("2006-01-02")
+	groups, _ := a.store.Groups()
+	g, found := store.Group{}, false
+	for _, x := range groups {
+		if x.Parent == parent.ID && strings.EqualFold(x.Name, day) {
+			g, found = x, true
+			break
+		}
+	}
+	if !found {
+		var err error
+		if g, err = a.CreateGroup(ctx, day, parent.ID, false); err != nil {
+			return g, err
+		}
+	}
+	g.Name = a.groupPath(groups, parent.ID) + " › " + day
 	return g, nil
 }
 
