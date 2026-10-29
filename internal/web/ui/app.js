@@ -7,11 +7,12 @@ import * as stats from './views/stats.js';
 import * as folders from './views/folders.js';
 import * as rules from './views/rules.js';
 import * as settings from './views/settings.js';
+import * as mmr from './views/mmr.js';
 import * as setup from './views/setup.js';
 
 const views = {
   uebersicht: overview, verlauf: history, statistik: stats, ordner: folders,
-  regeln: rules, einstellungen: settings, einrichtung: setup,
+  regeln: rules, einstellungen: settings, einrichtung: setup, mmr,
 };
 
 const state = {};
@@ -59,6 +60,7 @@ function renderNav() {
   dot('unsorted', state.inbox, 'verlauf', state.inbox ? `Verlauf, ${state.inbox} unsortiert` : 'Verlauf');
   const setupNeeded = ['none', 'invalid'].includes(state.account?.status);
   dot('setup', setupNeeded, 'einstellungen', setupNeeded ? 'Einstellungen, ballchasing nicht verbunden' : 'Einstellungen');
+  document.querySelector('[data-route="mmr"]').hidden = !state.lobby; // developer mode
 }
 
 // renderFoot fills the status bar; lost says the program is not reachable.

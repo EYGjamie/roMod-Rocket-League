@@ -37,6 +37,7 @@ type Manager struct {
 	markup  bool      // the service reads markup in the body
 	runs    map[uint32]map[string]func()
 	quick   uint32 // ID of the quick-sort prompt
+	lobby   uint32 // ID of the lobby notification
 }
 
 func New() *Manager { return &Manager{runs: map[uint32]map[string]func(){}} }
@@ -186,6 +187,26 @@ func (m *Manager) HideQuickSort() {
 	m.mu.Lock()
 	id := m.quick
 	m.quick = 0
+	m.mu.Unlock()
+	m.close(id)
+}
+
+// ShowLobby shows the lobby as a notification and replaces the one shown
+// before. The tool closes it, so it has no timeout of its own.
+func (m *Manager) ShowLobby(l Lobby) {
+	id := m.notify(l.Title, lobbyText(l), nil, map[string]dbus.Variant{"transient": dbus.MakeVariant(true)}, 0)
+	m.mu.Lock()
+	old := m.lobby
+	m.lobby = id
+	m.mu.Unlock()
+	m.close(old)
+}
+
+// HideLobby removes the lobby notification.
+func (m *Manager) HideLobby() {
+	m.mu.Lock()
+	id := m.lobby
+	m.lobby = 0
 	m.mu.Unlock()
 	m.close(id)
 }

@@ -201,3 +201,26 @@ func TestValidKey(t *testing.T) {
 		t.Error("key table wrong")
 	}
 }
+
+func TestLobbyHooks(t *testing.T) {
+	tt := newTestTracker(false)
+	var lobbies []string
+	var winners []int
+	tt.hooks.Lobby = func(guid string, ps []Player) { lobbies = append(lobbies, guid+":"+ps[0].Name) }
+	tt.hooks.Winner = func(guid string, team int) { winners = append(winners, team) }
+	players := []Player{{Name: "Jamie", PrimaryID: "Steam|1|0"}}
+
+	tt.Handle(Event{Name: "UpdateState", MatchGuid: "G1", Players: players})
+	tt.Handle(Event{Name: "UpdateState", Players: players}) // offline
+	tt.Handle(Event{Name: "MatchEnded", MatchGuid: "G1", Winner: 1})
+	tt.Handle(Event{Name: "MatchEnded", MatchGuid: "G2", Winner: -1}) // no winner sent
+	tt.send("ReplayCreated", "")
+	tt.Handle(Event{Name: "UpdateState", MatchGuid: "G1", Players: players}) // watching the replay
+
+	if !slices.Equal(lobbies, []string{"G1:Jamie"}) {
+		t.Errorf("Lobby = %v, want only the online match", lobbies)
+	}
+	if !slices.Equal(winners, []int{1}) {
+		t.Errorf("Winner = %v, want [1]", winners)
+	}
+}

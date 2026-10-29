@@ -23,6 +23,7 @@ import (
 	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/mmr"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/upload"
 )
@@ -34,6 +35,8 @@ type Desktop interface {
 	OpenBrowser(route string)
 	ShowQuickSort(q QuickSort, pick func(choice int))
 	HideQuickSort()
+	ShowLobby(l LobbyPopup) // shows or updates the popup
+	HideLobby()
 	Toast(t Toast)
 	SetTray(paused, failed bool)
 	Recycle(path string) error
@@ -97,6 +100,8 @@ type Options struct {
 	GameRunning func() bool     // whether Rocket League runs, default game.RocketLeagueRunning
 	ShowUI      bool            // open the interface at start, not only after sign-in without start_minimized
 	Restart     func()          // starts the updated program and ends this one; nil opens the release page instead
+	// MMR creates the rank lookup. Default: package mmr.
+	MMR func(mmr.Options) MMR
 }
 
 type App struct {
@@ -108,6 +113,8 @@ type App struct {
 	tracker *game.Tracker
 	events  *hub
 	quick   *quickSorter
+	lobby   *lobbyTracker
+	mmr     MMR
 	now     func() time.Time
 
 	mu       sync.RWMutex
@@ -117,6 +124,7 @@ type App struct {
 	account  string // none, ok, invalid, offline
 	paused   struct{ watch, mark bool }
 	toasts   []Toast // held back during a match
+	epicErr  string  // of the last contact with Epic and Psyonix
 	lastGame time.Time
 	notified time.Time // end of the last session announced
 	hint     struct {
@@ -148,9 +156,13 @@ func New(opts Options) (*App, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.MMR == nil {
+		opts.MMR = func(o mmr.Options) MMR { return mmr.New(o) }
+	}
 	a := &App{opts: opts, dataDir: filepath.Dir(opts.ConfigPath), desk: opts.Desktop, events: newHub(), notified: opts.Now(),
 		now: opts.Now, account: "none", syncWake: make(chan bool, 1), ctx: context.Background()}
 	a.quick = &quickSorter{a: a}
+	a.lobby = &lobbyTracker{a: a}
 
 	cfg, err := config.Load(opts.ConfigPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -170,6 +182,7 @@ func New(opts Options) (*App, error) {
 	if a.store, err = store.Open(filepath.Join(a.dataDir, "romod.db")); err != nil {
 		return nil, err
 	}
+	a.mmr = opts.MMR(mmr.Options{Token: cfg.EpicToken, Save: a.saveEpic, Version: a.rlapiVersion(), SaveVersion: a.saveRlapiVersion})
 	if err := a.importLegacy(); err != nil {
 		log.Printf("uploaded.json übernehmen: %v", err)
 	}
@@ -192,6 +205,8 @@ func New(opts Options) (*App, error) {
 		MatchStarted: func() { a.events.publish("state") },
 		MatchEnded:   a.matchEnded,
 		ReplayLeft:   a.cleanBorrows,
+		Lobby:        a.lobby.players,
+		Winner:       a.lobby.winner,
 	})
 
 	b := make([]byte, 16)
@@ -216,9 +231,10 @@ func (a *App) URL() string {
 	return "http://" + a.ln.Addr().String() + "/?k=" + a.token
 }
 
-// Close releases the database.
+// Close releases the database and the connection of the rank lookup.
 func (a *App) Close() error {
 	a.ln.Close()
+	a.mmr.Close()
 	return a.store.Close()
 }
 
@@ -302,7 +318,8 @@ func (a *App) Run(ctx context.Context) {
 	a.bindHotkeys(config.Config{}, a.config())
 
 	go a.queue.Run(ctx)
-	go game.ListenStatsAPI(ctx, func() string { return a.config().StatsAPI }, a.tracker.Handle, a.statsAPIConnected)
+	go game.ListenStatsAPI(ctx, func() string { return a.config().StatsAPI }, a.tracker.Handle, a.statsAPIConnected,
+		func() bool { return a.config().LobbyOn() })
 	go a.syncLoop(ctx)
 	go a.detailLoop(ctx)
 	go a.housekeeping(ctx)
@@ -338,14 +355,18 @@ func (a *App) housekeeping(ctx context.Context) {
 func (a *App) statsAPIConnected(up bool) {
 	a.statsAPI.Store(up)
 	a.events.publish("state")
-	if !up {
-		// Rocket League closed: the session is over
-		time.AfterFunc(5*time.Second, func() {
-			if !a.gameRunning() {
-				a.checkSessionEnd(true)
-			}
-		})
+	if up {
+		go a.connectEpic()
+		return
 	}
+	// Rocket League closed: the session is over
+	a.lobby.hide()
+	go a.mmr.Close()
+	time.AfterFunc(5*time.Second, func() {
+		if !a.gameRunning() {
+			a.checkSessionEnd(true)
+		}
+	})
 }
 
 func (a *App) matchEnded(marked bool) {
@@ -414,11 +435,20 @@ func (a *App) bindHotkeys(old, cur config.Config) {
 			if !a.desk.Platform().Overlay {
 				open = "Oberfläche öffnen"
 			}
-			log.Printf("%s: %s", key, map[string]string{"overlay": open, "pause": "Pausieren und fortsetzen"}[name])
+			log.Printf("%s: %s", key, map[string]string{"overlay": open, "pause": "Pausieren und fortsetzen",
+				"lobby": "Lobby öffnen und schließen", "smurf": "Smurf in der Lobby markieren"}[name])
 		}
 	}
 	bind("overlay", old.GUIHotkey, cur.GUIHotkey, a.desk.ToggleOverlay)
 	bind("pause", old.PauseHotkey, cur.PauseHotkey, a.TogglePause)
+	lobbyKey := func(c config.Config, key string) string {
+		if c.LobbyOn() {
+			return key
+		}
+		return ""
+	}
+	bind("lobby", lobbyKey(old, old.LobbyHotkey), lobbyKey(cur, cur.LobbyHotkey), a.lobby.toggle)
+	bind("smurf", lobbyKey(old, old.SmurfHotkey), lobbyKey(cur, cur.SmurfHotkey), a.lobby.toggleSmurf)
 }
 
 // UpdateSettings applies a partial settings object as sent by the
@@ -434,6 +464,8 @@ func (a *App) UpdateSettings(patch []byte) (config.Config, error) {
 	}
 	next.Normalize()
 	next.Token, next.TokenProtected = old.Token, old.TokenProtected // only via SetToken
+	next.DevMode = old.DevMode                                      // only with the password
+	next.EpicToken, next.EpicTokenProtected, next.EpicName = old.EpicToken, old.EpicTokenProtected, old.EpicName
 	if err := next.Validate(); err != nil {
 		a.mu.Unlock()
 		return old, err
@@ -446,8 +478,11 @@ func (a *App) UpdateSettings(patch []byte) (config.Config, error) {
 	a.mu.Unlock()
 
 	a.tracker.SetOptions(trackerOptions(next))
-	a.bindHotkeys(old, next)
+	a.lobbyChanged(old, next)
 	a.events.publish("settings")
+	if old.LobbyOn() != next.LobbyOn() {
+		a.events.publish("state")
+	}
 	return next, nil
 }
 

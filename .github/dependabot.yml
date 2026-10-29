@@ -1,0 +1,12 @@
+# Code changes of rlapi (new endpoints, a changed sign-in) need a new build.
+# The game version after an update the tool fetches itself at runtime.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: github.com/dank/rlapi
+    commit-message:
+      prefix: rlapi

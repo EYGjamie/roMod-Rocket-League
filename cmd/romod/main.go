@@ -218,6 +218,22 @@ func (d *desk) ShowQuickSort(q app.QuickSort, pick func(int)) {
 
 func (d *desk) HideQuickSort() { d.pop.HideQuickSort() }
 
+func (d *desk) ShowLobby(l app.LobbyPopup) {
+	pl := popup.Lobby{Title: l.Title, Note: l.Note, Smurf: l.Smurf, Hint: l.Hint}
+	for team, rows := range l.Teams {
+		for _, r := range rows {
+			p := popup.LobbyPlayer{Name: r.Name, Me: r.Me, Wins: r.Wins}
+			for i, rk := range r.Ranks {
+				p.Ranks[i] = popup.Rank(rk)
+			}
+			pl.Teams[team] = append(pl.Teams[team], p)
+		}
+	}
+	d.pop.ShowLobby(pl)
+}
+
+func (d *desk) HideLobby() { d.pop.HideLobby() }
+
 func (d *desk) Toast(t app.Toast) {
 	pt := popup.Toast{Title: t.Title, Body: t.Body, Disable: t.Disable}
 	for _, a := range t.Actions {

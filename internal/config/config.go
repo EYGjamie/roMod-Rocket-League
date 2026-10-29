@@ -43,6 +43,18 @@ type Config struct {
 	StartMinimized bool `json:"start_minimized"`
 	SetupDone      bool `json:"setup_done"`
 
+	// Developer mode, unlocked with a password, and what it offers: ranks
+	// and wins of the lobby through a second Epic account.
+	DevMode            bool   `json:"dev_mode"`
+	MMR                bool   `json:"mmr"`           // look up the lobby at match start
+	LobbyPopup         bool   `json:"lobby_popup"`   // show it at match start
+	LobbySeconds       int    `json:"lobby_seconds"` // until the popup closes again
+	LobbyHotkey        string `json:"lobby_hotkey"`
+	SmurfHotkey        string `json:"smurf_hotkey"`
+	EpicToken          string `json:"-"` // refresh token of the Epic account; written encrypted below
+	EpicTokenProtected string `json:"epic_token_protected,omitempty"`
+	EpicName           string `json:"epic_name,omitempty"`
+
 	storedToken  string // token from the file, kept when the environment overrides it
 	tokenFromEnv bool
 }
@@ -66,8 +78,16 @@ func Default() Config {
 		QuickSort:        true,
 		QuickSortSeconds: 10,
 		StartMinimized:   true,
+		LobbyPopup:       true,
+		LobbySeconds:     15,
+		LobbyHotkey:      "Ctrl+Alt+L",
+		SmurfHotkey:      "Ctrl+Alt+S",
 	}
 }
+
+// LobbyOn reports whether the lobby lookup runs: developer mode and the
+// option are on.
+func (c Config) LobbyOn() bool { return c.DevMode && c.MMR }
 
 // Load reads path on top of the defaults. A missing file returns the
 // defaults with an error matching fs.ErrNotExist. BALLCHASING_TOKEN
@@ -90,6 +110,9 @@ func Load(path string) (Config, error) {
 		} else {
 			cfg.Token = "" // e.g. copied from another Windows user
 		}
+	}
+	if cfg.EpicTokenProtected != "" {
+		cfg.EpicToken, _ = unprotect(cfg.EpicTokenProtected) // "" if copied from another Windows user
 	}
 	cfg.storedToken = cfg.Token
 	cfg.applyEnv()
@@ -142,14 +165,22 @@ func (c Config) Validate() error {
 		return fmt.Errorf("mark_key %q ist keine unterstützte Taste", c.MarkKey)
 	case c.QuickSortSeconds < 3 || c.QuickSortSeconds > 60:
 		return fmt.Errorf("quick_sort_seconds %d ungültig (3 bis 60)", c.QuickSortSeconds)
+	case c.LobbySeconds < 3 || c.LobbySeconds > 120:
+		return fmt.Errorf("lobby_seconds %d ungültig (3 bis 120)", c.LobbySeconds)
 	}
 	keys := []string{c.GUIHotkey, c.PauseHotkey}
 	keys = append(keys, c.QuickSortHotkeys[:]...)
+	names := hotkeyNames
+	if c.LobbyOn() { // the others are not registered, so they block nothing
+		keys = append(keys, c.LobbyHotkey, c.SmurfHotkey)
+	} else {
+		names = names[:len(keys)]
+	}
 	used := map[hotkey.Hotkey]bool{}
 	for i, key := range keys {
 		hk, err := hotkey.Parse(key)
 		if err != nil {
-			return fmt.Errorf("%s: %w", hotkeyNames[i], err)
+			return fmt.Errorf("%s: %w", names[i], err)
 		}
 		if hk.IsZero() {
 			continue
@@ -163,17 +194,24 @@ func (c Config) Validate() error {
 }
 
 // hotkeyNames name the hotkeys in the order Validate checks them.
-var hotkeyNames = []string{"gui_hotkey", "pause_hotkey", "quick_sort_hotkeys[0]", "quick_sort_hotkeys[1]", "quick_sort_hotkeys[2]", "quick_sort_hotkeys[3]"}
+var hotkeyNames = []string{"gui_hotkey", "pause_hotkey", "quick_sort_hotkeys[0]", "quick_sort_hotkeys[1]", "quick_sort_hotkeys[2]", "quick_sort_hotkeys[3]", "lobby_hotkey", "smurf_hotkey"}
 
-// Save writes c to path, atomically and with the token encrypted.
+// Save writes c to path, atomically and with the tokens encrypted.
 func Save(path string, c Config) error {
-	c.Token, c.TokenProtected = "", ""
+	c.Token, c.TokenProtected, c.EpicTokenProtected = "", "", ""
 	if c.storedToken != "" {
 		p, err := protect(c.storedToken)
 		if err != nil {
 			return err
 		}
 		c.TokenProtected = p
+	}
+	if c.EpicToken != "" {
+		p, err := protect(c.EpicToken)
+		if err != nil {
+			return err
+		}
+		c.EpicTokenProtected = p
 	}
 	if c.DemoDirs == nil {
 		c.DemoDirs = []string{}

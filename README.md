@@ -33,6 +33,7 @@ roMod löst das, **ohne ins Spiel einzugreifen**: Es nutzt nur die offizielle [S
 - 📥 **Unsortiert:** was keine Regel einordnet, ist im Verlauf markiert und lässt sich per Auswahl in einen Ordner verschieben
 - ▶️ **Ins Spiel laden:** gelöschte Replays von ballchasing zurückholen und im Spiel anschauen
 - 🔄 **Automatische Updates** aus den GitHub-Releases nach kurzer Bestätigung von euch
+- 🧪 **Entwicklermodus** (mit Passwort): Ränge und Siege der ganzen Lobby beim Matchstart, Smurfs per Hotkey markieren und auswerten (siehe [Anleitung](docs/anleitung.md#entwicklermodus-mmr-abfrage))
 
 Einrichten geht in wenigen Minuten: Ein Assistent führt durch Token, Replay-Ordner, Speichern-Taste und Ordner und schaltet auf Wunsch auch die Stats API im Spiel mit einem Klick ein.
 

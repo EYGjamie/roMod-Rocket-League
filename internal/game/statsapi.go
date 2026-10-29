@@ -15,6 +15,15 @@ import (
 type Event struct {
 	Name      string
 	MatchGuid string
+	Players   []Player // UpdateState only
+	Winner    int      // MatchEnded: WinnerTeamNum, -1 if missing
+}
+
+// Player is a player of the match as UpdateState lists them.
+type Player struct {
+	Name      string `json:"Name"`
+	PrimaryID string `json:"PrimaryId"` // e.g. Steam|76561197960287930|0
+	Team      int    `json:"TeamNum"`   // 0 blue, 1 orange
 }
 
 type envelope struct {
@@ -34,26 +43,33 @@ func decodeEvent(env envelope) (Event, error) {
 		data = []byte(s)
 	}
 	var d struct {
-		MatchGuid string `json:"MatchGuid"`
+		MatchGuid string   `json:"MatchGuid"`
+		Players   []Player `json:"Players"`
+		Winner    *int     `json:"WinnerTeamNum"`
 	}
 	if len(data) > 0 {
 		if err := json.Unmarshal(data, &d); err != nil {
 			return Event{}, err
 		}
 	}
-	return Event{Name: env.Event, MatchGuid: d.MatchGuid}, nil
+	ev := Event{Name: env.Event, MatchGuid: d.MatchGuid, Players: d.Players, Winner: -1}
+	if d.Winner != nil {
+		ev.Winner = *d.Winner
+	}
+	return ev, nil
 }
 
 // readEvents decodes the concatenated JSON stream from r and calls handle for
-// every event except the periodic UpdateState.
-func readEvents(r io.Reader, handle func(Event)) error {
+// every event. The periodic UpdateState only goes on while lobby says so, as
+// only the lobby lookup needs its player list.
+func readEvents(r io.Reader, handle func(Event), lobby func() bool) error {
 	dec := json.NewDecoder(r)
 	for {
 		var env envelope
 		if err := dec.Decode(&env); err != nil {
 			return err
 		}
-		if env.Event == "UpdateState" {
+		if env.Event == "UpdateState" && (lobby == nil || !lobby()) {
 			continue
 		}
 		ev, err := decodeEvent(env)
@@ -69,7 +85,8 @@ func readEvents(r io.Reader, handle func(Event)) error {
 // ctx is done. addr is asked before every attempt, so a changed setting
 // applies on the next reconnect. handle is only ever called from this
 // goroutine; connected, if not nil, reports connects and disconnects.
-func ListenStatsAPI(ctx context.Context, addrOf func() string, handle func(Event), connected func(bool)) {
+// UpdateState only reaches handle while lobby, if not nil, returns true.
+func ListenStatsAPI(ctx context.Context, addrOf func() string, handle func(Event), connected func(bool), lobby func() bool) {
 	var d net.Dialer
 	waiting := false
 	for {
@@ -82,7 +99,7 @@ func ListenStatsAPI(ctx context.Context, addrOf func() string, handle func(Event
 				connected(true)
 			}
 			stop := context.AfterFunc(ctx, func() { conn.Close() })
-			err = readEvents(conn, handle)
+			err = readEvents(conn, handle, lobby)
 			stop()
 			conn.Close()
 			if connected != nil {

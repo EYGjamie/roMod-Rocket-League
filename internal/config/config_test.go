@@ -77,6 +77,9 @@ func TestValidate(t *testing.T) {
 		"same hotkeys": func(c *Config) { c.PauseHotkey = c.GUIHotkey },
 		"same combo":   func(c *Config) { c.QuickSortHotkeys[2] = "strg+alt+b" },
 		"quick hotkey": func(c *Config) { c.QuickSortHotkeys[0] = "Ctrl+Alt+Ä" },
+		"lobby time":   func(c *Config) { c.LobbySeconds = 0 },
+		"lobby combo":  func(c *Config) { c.DevMode, c.MMR, c.SmurfHotkey = true, true, c.PauseHotkey },
+		"lobby hotkey": func(c *Config) { c.DevMode, c.MMR, c.LobbyHotkey = true, true, "Ctrl+Nix" },
 	} {
 		c := Default()
 		mutate(&c)
@@ -86,6 +89,28 @@ func TestValidate(t *testing.T) {
 	}
 	if err := Default().Validate(); err != nil {
 		t.Errorf("defaults invalid: %v", err)
+	}
+	c := Default()
+	c.SmurfHotkey = c.PauseHotkey // not registered without the lobby lookup
+	if err := c.Validate(); err != nil {
+		t.Errorf("unused lobby hotkey rejected: %v", err)
+	}
+}
+
+func TestSaveEncryptsEpicToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	cfg := Default()
+	cfg.EpicToken, cfg.EpicName = "epic-refresh-456", "Zweitkonto"
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "epic-refresh-456") || !strings.Contains(string(data), "epic_token_protected") {
+		t.Errorf("Epic token stored in plain text:\n%s", data)
+	}
+	got, err := Load(path)
+	if err != nil || got.EpicToken != "epic-refresh-456" || got.EpicName != "Zweitkonto" {
+		t.Errorf("Load() = %+v, %v", got, err)
 	}
 }
 

@@ -186,3 +186,35 @@ func TestGroupsRulesDecisions(t *testing.T) {
 		t.Error("Ignored() wrong")
 	}
 }
+
+func TestLobbies(t *testing.T) {
+	s := open(t)
+	day := time.Date(2026, 10, 20, 20, 0, 0, 0, time.Local)
+	l := Lobby{GUID: "G1", Started: day, Size: 2, Winner: -1, Players: []LobbyPlayer{
+		{ID: "Steam|1|0", Name: "Jamie", Me: true, Wins: 1200, Ranks: [3]*Rank{nil, {Tier: 16, Div: 2, MMR: 1110}, nil}},
+		{ID: "Epic|x|0", Name: "Rook", Team: 1, Wins: -1},
+	}}
+	if err := s.PutLobby(l); err != nil {
+		t.Fatal(err)
+	}
+	l.Winner = 1
+	s.PutLobby(l)
+	s.PutLobby(Lobby{GUID: "G0", Started: day.Add(-time.Hour), Size: 1})
+	if err := s.SetSmurf("G1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSmurf("nope", true); err == nil {
+		t.Error("SetSmurf of a missing lobby succeeded")
+	}
+	got, ok, err := s.Lobby("G1")
+	if err != nil || !ok || !got.Smurf || got.Winner != 1 || len(got.Players) != 2 || got.Players[0].Ranks[1].MMR != 1110 || got.Players[1].Ranks[1] != nil {
+		t.Errorf("Lobby(G1) = %+v, %v, %v", got, ok, err)
+	}
+	list, _ := s.Lobbies(day.Add(-2 * time.Hour))
+	if len(list) != 2 || list[0].GUID != "G0" {
+		t.Errorf("Lobbies() = %+v, want G0, G1", list)
+	}
+	if list, _ := s.Lobbies(day.Add(-time.Minute)); len(list) != 1 {
+		t.Errorf("Lobbies(since) = %d lobbies, want 1", len(list))
+	}
+}

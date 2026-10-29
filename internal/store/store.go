@@ -1,6 +1,7 @@
 // Package store keeps the tool's state in a local SQLite database: the
 // replay files and their upload state, a copy of the replays on ballchasing,
-// the group tree, sorting rules and decisions.
+// the group tree, sorting rules and decisions, and the lobbies of the
+// developer mode's rank lookup.
 package store
 
 import (
@@ -130,6 +131,16 @@ CREATE TABLE ignored (key TEXT PRIMARY KEY);
 CREATE INDEX replays_score ON replays(map_code, blue_goals, orange_goals);
 `, `
 ALTER TABLE rules ADD COLUMN subfolders TEXT NOT NULL DEFAULT '';
+`, `
+CREATE TABLE lobbies (
+	guid    TEXT PRIMARY KEY,
+	started INTEGER NOT NULL DEFAULT 0,
+	size    INTEGER NOT NULL DEFAULT 0,
+	smurf   INTEGER NOT NULL DEFAULT 0,
+	winner  INTEGER NOT NULL DEFAULT -1,
+	players TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX lobbies_started ON lobbies(started);
 `}
 
 func (s *Store) migrate() error {

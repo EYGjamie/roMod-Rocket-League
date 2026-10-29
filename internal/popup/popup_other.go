@@ -18,3 +18,7 @@ func (m *Manager) ShowQuickSort(q Quick, pick func(int)) {
 func (m *Manager) HideQuickSort() {}
 
 func (m *Manager) Toast(t Toast) { log.Printf("%s: %s", t.Title, t.Body) }
+
+func (m *Manager) ShowLobby(l Lobby) { log.Printf("%s: %s", l.Title, lobbyText(l)) }
+
+func (m *Manager) HideLobby() {}

@@ -198,6 +198,21 @@ Ist es eingeschaltet, wandert eine Datei in den **Papierkorb**, sobald ballchasi
 
 Unter Linux geht die Datei in den Papierkorb nach freedesktop.org-Standard, aus dem der Dateimanager sie wiederherstellen kann; liegt sie auf einem anderen Laufwerk (etwa einer zweiten Steam-Bibliothek), in den Papierkorb dieses Laufwerks. Auf dem Mac fragt der Finder beim ersten Mal eventuell, ob das Tool ihn steuern darf. Klappt das Verschieben nicht, bleibt die Datei liegen; endgültig gelöscht wird nie.
 
+### Entwicklermodus: MMR-Abfrage
+
+Ganz unten in den Einstellungen schaltet **Entwickler → Entwicklermodus** mit dem Passwort `romod-dev` experimentelle Funktionen frei. Das Passwort ist kein Geheimnis (es steht auch in der exe), es hält die Funktionen nur aus dem Weg. Ausschalten geht ohne Passwort.
+
+Darin steckt die **MMR-Abfrage**: Zu Beginn jedes Online-Matches liest das Tool die Spieler aus der Stats API (ihre IDs wie `Steam|7656…|0`), schlägt über [rlapi](https://github.com/dank/rlapi) bei Psyonix Rang und MMR in 1s, 2s und 3s sowie die Siege aller Zeiten nach und zeigt sie in einem Popup rechts in der Mitte über dem Spiel. Unter Linux und macOS kommt stattdessen eine Benachrichtigung.
+
+- **Epic-Account:** rlapi meldet sich wie das Spiel an, deshalb braucht die Abfrage ein Epic-Konto, am besten ein zweites. „Anmeldeseite öffnen“ führt zu Epic; ist der Browser dort schon mit deinem Hauptkonto angemeldet, den kopierten Link in einem privaten Fenster öffnen. Danach zeigt Epic eine Seite mit `authorizationCode`, die (oder nur den Code) in die Einstellungen einfügen. Epic erneuert die Anmeldung bei jeder Verbindung; wird sie einige Wochen nicht benutzt, läuft sie ab und die Einstellungen bitten um eine neue.
+- **Popup:** erscheint, sobald die Ränge da sind (etwa zwei Sekunden nach dem Laden der Lobby), und schließt sich nach der eingestellten Zeit. **Strg+Alt+L** öffnet und schließt es jederzeit; kommt ein Spieler später dazu, wird er nachgeschlagen.
+- **Smurf markieren:** **Strg+Alt+S** markiert die aktuelle Lobby als „Smurf in der Lobby“, ein zweiter Druck nimmt es zurück. Das Popup bestätigt es. Das geht bis zum nächsten Match, auch noch im Menü danach, und nachträglich auf der MMR-Seite.
+- **Auswertung:** Die Seite **MMR** (Symbol in der Leiste, nur mit eingeschalteter Abfrage) zeigt die aktuelle Lobby, wie oft ein Smurf dabei war und die Siegquote mit und ohne, deine MMR pro Match neben dem Schnitt der Gegner, wie weit die Gegner im Schnitt über oder unter dir lagen und die Lobbys zum Aufklappen. Dafür muss dein Spieler unter Einstellungen → Dein Spieler stehen. Gezählt werden 1v1, 2v2 und 3v3; zeigt das Replay zum Match einen anderen Modus (Hoops, Rumble, Privat), bleibt die Lobby draußen. Sieg und Niederlage kommen aus der Stats API.
+
+Jedes Online-Match landet in der Datenbank (Tabelle `lobbies`), auch ohne Epic-Anmeldung, dann nur ohne Ränge.
+
+**Nach Spielupdates:** rlapi ist nachgebaut und nicht offiziell. Psyonix erwartet bei der Anmeldung die Version des aktuellen Spiels (Version, Feature-Set, Build-Secret), und die ändert sich mit jedem Update. rlapi trägt die neue nach jedem Patch in [`psynet.go`](https://github.com/dank/rlapi/blob/master/psynet.go) ein. Das Tool liest diese Datei alle 12 Stunden beim Verbinden und sofort, wenn die Anmeldung bei Rocket League scheitert (höchstens alle 10 Minuten), übernimmt eine neuere Version und merkt sie sich in der Datenbank (`meta`, Schlüssel `rlapi_version`). Welche gerade gilt, steht unter Einstellungen → Entwickler → Spielversion. Ändert rlapi mehr als die Version (etwa den Ablauf der Anmeldung), braucht es eine neue Version von roMod: Dafür öffnet Dependabot (`.github/dependabot.yml`) einen Pull Request, sobald rlapi eine neue Version veröffentlicht.
+
 ## Konfiguration
 
 Alles lässt sich in der Oberfläche einstellen. Gespeichert wird in `config.json`:
@@ -233,12 +248,18 @@ romod -config ~/rl/config.json
 | `quick_sort_seconds` | `10` | Countdown (3 bis 60) |
 | `start_minimized` | `true` | beim Start durch die Anmeldung nur das Symbol zeigen; ein Start von Hand öffnet die Oberfläche immer |
 | `setup_done` | `false` | Assistent erledigt |
+| `dev_mode` | `false` | Entwicklermodus; nur über das Passwort in der Oberfläche |
+| `mmr` | `false` | MMR-Abfrage der Lobby (nur im Entwicklermodus) |
+| `lobby_popup` | `true` | Lobby-Popup beim Matchstart |
+| `lobby_seconds` | `15` | wie lange das Popup offen bleibt (3 bis 120) |
+| `lobby_hotkey`, `smurf_hotkey` | `Ctrl+Alt+L`, `Ctrl+Alt+S` | Lobby öffnen und schließen, Smurf markieren; nur registriert, wenn die Abfrage läuft |
+| `epic_token_protected`, `epic_name` | – | Anmeldung des Epic-Accounts für die Abfrage, verschlüsselt wie der Upload-Token |
 
 Hotkeys bestehen aus `Ctrl`/`Strg`, `Alt`, `Shift`, `Win` (unter Linux auch `Super`) plus Buchstabe, Ziffer oder `F1`–`F24`.
 
 Weitere Dateien neben der `config.json`:
 
-- `romod.db`: Datenbank mit Upload-Status, Replays, Ordnern, Regeln und Entscheidungen
+- `romod.db`: Datenbank mit Upload-Status, Replays, Ordnern, Regeln und Entscheidungen, im Entwicklermodus auch den Lobbys
 - `romod.log`: das Log (über 1 MB wird es beim Start zu `.log.old`), in der Oberfläche unter Einstellungen → Log anzeigen
 - `manuell/`: Kopien von Replays, die über die Oberfläche hochgeladen wurden
 - `instance.json`: solange das Tool läuft, die Adresse seiner Oberfläche, damit ein zweiter Start sie öffnen kann
@@ -316,8 +337,9 @@ internal/
   desktop/                Symbol, Autostart, Papierkorb, Dateiauswahl, Meldungsfenster
   game/                   Stats API, Match-Erkennung, Speichern-Taste, Replay-Ordner
   hotkey/                 globale Tastenkombinationen
+  mmr/                    MMR-Abfrage über rlapi mit einem Epic-Account (Entwicklermodus)
   overlay/                das Overlay-Fenster (WebView2), sonst der Browser
-  popup/                  Schnell-Einordnen und Benachrichtigungen
+  popup/                  Schnell-Einordnen, Lobby-Popup und Benachrichtigungen
   rules/                  Regeln, Ordner-Vorschläge, Regel-Vorschläge
   store/                  SQLite-Datenbank
   upload/                 Replay-Ordner beobachten, Warteschlange mit Neuversuchen
@@ -341,7 +363,7 @@ Die Oberfläche mit Beispieldaten ausprobieren, ohne ballchasing-Konto (die Adre
 go run ./cmd/uidemo -os darwin
 ```
 
-`-slow 2s` verzögert jede Anfrage an den Fake, um die Info-Karten zu sehen. Die Demo nutzt eine eigene Spiel-Installation im Temp-Ordner, nie die echte.
+`-slow 2s` verzögert jede Anfrage an den Fake, um die Info-Karten zu sehen. `-dev` startet im Entwicklermodus mit eingeschalteter MMR-Abfrage und einem Monat erfundener Lobbys; die Epic-Anmeldung nimmt dort jeden Code an. Die Demo nutzt eine eigene Spiel-Installation im Temp-Ordner, nie die echte.
 
 Tests:
 

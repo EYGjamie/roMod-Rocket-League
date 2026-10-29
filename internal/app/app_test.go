@@ -19,6 +19,7 @@ import (
 	"github.com/EYGjamie/roMod-Rocket-League/internal/ballchasing/ballchasingtest"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
+	"github.com/EYGjamie/roMod-Rocket-League/internal/mmr"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/rules"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
@@ -32,6 +33,8 @@ type fakeDesk struct {
 	overlay   []string
 	autostart bool
 	quickSort bool // the prompt takes a choice
+	lobbies   []LobbyPopup
+	lobbyUp   bool
 }
 
 func (d *fakeDesk) ShowOverlay(route string) {
@@ -47,7 +50,23 @@ func (d *fakeDesk) ShowQuickSort(q QuickSort, pick func(int)) {
 	d.quick = append(d.quick, q)
 	d.pick = pick
 }
-func (d *fakeDesk) HideQuickSort()              {}
+func (d *fakeDesk) HideQuickSort() {}
+func (d *fakeDesk) ShowLobby(l LobbyPopup) {
+	d.mu.Lock()
+	d.lobbies, d.lobbyUp = append(d.lobbies, l), true
+	d.mu.Unlock()
+}
+func (d *fakeDesk) HideLobby() { d.mu.Lock(); d.lobbyUp = false; d.mu.Unlock() }
+
+// lastLobby returns the popup shown last and whether it is up.
+func (d *fakeDesk) lastLobby() (LobbyPopup, bool, int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.lobbies) == 0 {
+		return LobbyPopup{}, false, 0
+	}
+	return d.lobbies[len(d.lobbies)-1], d.lobbyUp, len(d.lobbies)
+}
 func (d *fakeDesk) Toast(t Toast)               { d.mu.Lock(); d.toasts = append(d.toasts, t); d.mu.Unlock() }
 func (d *fakeDesk) SetTray(bool, bool)          {}
 func (d *fakeDesk) Reveal(string) error         { return nil }
@@ -86,6 +105,7 @@ type testApp struct {
 
 	running atomic.Bool  // Rocket League runs, never the real process
 	skew    atomic.Int64 // added to the app's clock
+	mmr     *fakeMMR
 }
 
 // advance moves the app's clock forward.
@@ -110,10 +130,11 @@ func newTestApp(t *testing.T, mutate func(*config.Config)) *testApp {
 	}
 	desk := &fakeDesk{quickSort: true}
 	game := t.TempDir() // never the real installation
-	ta := &testApp{t: t, fake: fake, desk: desk, dir: demos, game: game}
+	ta := &testApp{t: t, fake: fake, desk: desk, dir: demos, game: game, mmr: &fakeMMR{}}
 	a, err := New(Options{ConfigPath: cfgPath, LogPath: filepath.Join(data, "log.txt"), Desktop: desk,
 		BaseURL: fake.URL, HTTPClient: fake.Client(), Unpaced: true, GameDirs: func() []string { return []string{game} },
-		GameRunning: ta.running.Load, Now: func() time.Time { return time.Now().Add(time.Duration(ta.skew.Load())) }})
+		GameRunning: ta.running.Load, Now: func() time.Time { return time.Now().Add(time.Duration(ta.skew.Load())) },
+		MMR: func(o mmr.Options) MMR { ta.mmr.save = o.Save; return ta.mmr }})
 	if err != nil {
 		t.Fatal(err)
 	}

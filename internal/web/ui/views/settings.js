@@ -209,6 +209,79 @@ export function statsAPIBox(sys) {
   return box;
 }
 
+// epicBox signs a second Epic account in for the MMR lookup: Epic's page
+// shows a code after the sign-in, pasted here.
+function epicBox(epic, sys, onChange) {
+  const box = h('div', { class: 'stack' });
+  if (epic.status === 'ok' || epic.status === 'error') {
+    fill(box,
+      h('div', { class: 'ctl' }, h('span', { class: 'led' + (epic.status === 'ok' ? '' : ' off') }), 'Angemeldet als ' + epic.name,
+        h('button', { class: 'btn btn-ghost sm end', onclick: async () => { if (await run(() => api('/api/epic', { method: 'DELETE' }), 'Abgemeldet')) onChange(); } }, ico('sign-out'), 'Abmelden')),
+      epic.error ? h('div', { class: 'note warn sm' }, epic.error) : null);
+    return box;
+  }
+  const code = h('input', { class: 'input', type: 'text', placeholder: 'Code oder ganze Seite einfügen', autocomplete: 'off', 'aria-label': 'Code von Epic',
+    onkeydown: e => { if (e.key === 'Enter') connect(); } });
+  const btn = h('button', { class: 'btn btn-secondary', style: { flex: 'none' }, onclick: () => connect() }, 'Verbinden');
+  async function connect() {
+    if (!code.value.trim()) return code.focus();
+    btn.disabled = true;
+    const done = busy('Anmeldung bei Epic', 'Epic und Rocket League werden verbunden …');
+    const r = await run(() => api('/api/epic', { method: 'POST', body: { code: code.value } }), r => 'Angemeldet als ' + r.name);
+    done();
+    btn.disabled = false;
+    if (r) onChange();
+  }
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(epic.login_url); flash('Link kopiert'); } catch { flash('Kopieren nicht möglich, Link: ' + epic.login_url, 'err'); }
+  };
+  fill(box,
+    epic.status === 'expired' ? h('div', { class: 'note warn sm' }, `Die Anmeldung von ${epic.name} ist abgelaufen, bitte neu anmelden.`) : null,
+    h('div', { class: 'sm n4' }, '1. Bei Epic mit dem zweiten Account anmelden. Ist der Browser schon mit deinem Hauptkonto angemeldet, den Link in einem privaten Fenster öffnen.'),
+    h('div', { class: 'ctl' },
+      h('button', { class: 'btn btn-secondary', onclick: () => run(() => api('/api/epic/open', { method: 'POST' })) }, ico('arrow-square-out'), 'Anmeldeseite öffnen'),
+      h('button', { class: 'btn btn-ghost sm', onclick: copy }, ico('copy'), 'Link kopieren')),
+    h('div', { class: 'sm n4' }, '2. Danach zeigt Epic eine Seite mit „authorizationCode“. Den Code (oder die ganze Seite) hier einfügen:'),
+    h('div', { class: 'ctl', style: { flexWrap: 'nowrap', gap: 'var(--space-2)' } }, code, btn),
+    h('div', { class: 'hint' }, tokenHint(sys) + '. Der Code gilt nur wenige Minuten.'));
+  return box;
+}
+
+// devSection is the developer mode: a password unlocks it, then the MMR
+// lookup and its settings appear.
+function devSection(s, save, row, toggle, option, sys, meta, reload) {
+  if (!s.dev_mode) {
+    const pw = h('input', { class: 'input', type: 'password', placeholder: 'Passwort', autocomplete: 'off', 'aria-label': 'Passwort für den Entwicklermodus',
+      onkeydown: e => { if (e.key === 'Enter') unlock(); } });
+    const unlock = async () => {
+      if (!pw.value) return pw.focus();
+      const r = await run(() => api('/api/dev', { method: 'POST', body: { password: pw.value } }), 'Entwicklermodus eingeschaltet');
+      if (r) reload(r);
+    };
+    return [row('Entwicklermodus', 'Schaltet experimentelle Funktionen frei',
+      h('div', { class: 'ctl grow', style: { flexWrap: 'nowrap', gap: 'var(--space-2)' } }, pw,
+        h('button', { class: 'btn btn-secondary', style: { flex: 'none' }, onclick: unlock }, 'Freischalten')))];
+  }
+  return [
+    toggle('Entwicklermodus', true, async v => { if (!v) { const r = await run(() => api('/api/dev', { method: 'DELETE' }), 'Entwicklermodus ausgeschaltet'); if (r) reload(r); } },
+      'Ausschalten blendet die experimentellen Funktionen wieder aus'),
+    toggle('MMR-Abfrage', s.mmr, v => save({ mmr: v }).then(() => reload()),
+      'Zu Beginn jedes Online-Matches Rang (1s, 2s, 3s) und Siege aller Spieler nachschlagen, über einen zweiten Epic-Account'),
+    s.mmr ? [
+      h('div', { class: 'set top' }, h('div', null, 'Epic-Account', h('div', { class: 'hint' }, 'Am besten ein zweiter Account, nicht dein Hauptkonto: die Abfrage meldet ihn bei Rocket League an')),
+        epicBox(s.epic || {}, sys, () => reload())),
+      s.epic?.version ? row('Spielversion', 'Nach einem Spielupdate holt das Tool die neue von rlapi auf GitHub, ohne neue Version von roMod',
+        h('span', { class: 'mono' }, s.epic.version), h('span', { class: 'sm n4' }, s.epic.fetched ? 'von GitHub' : 'eingebaut')) : null,
+      option('Popup beim Matchstart', 'lobby_popup', 'Rechts in der Mitte über dem Spiel, sobald die Ränge da sind'),
+      row('Popup-Dauer', 'Sekunden, bis es sich wieder schließt', h('input', { class: 'input num', type: 'number', min: 3, max: 120, value: s.lobby_seconds,
+        'aria-label': 'Popup-Dauer in Sekunden', onchange: e => save({ lobby_seconds: Number(e.target.value) }) })),
+      sys.hotkeys ? row('Lobby öffnen und schließen', null, hotkeyCapture(s.lobby_hotkey, v => save({ lobby_hotkey: v }), meta)) : null,
+      sys.hotkeys ? row('Smurf markieren', 'Markiert die aktuelle Lobby, noch einmal drücken nimmt es zurück', hotkeyCapture(s.smurf_hotkey, v => save({ smurf_hotkey: v }), meta)) : null,
+      row('Auswertung', 'Smurfs, eigene MMR und die der Gegner', h('a', { class: 'btn btn-secondary', href: '#/mmr' }, ico('trend-up'), 'MMR öffnen')),
+    ] : null,
+  ];
+}
+
 // saveKeyMissing explains why the save key is not pressed on this system.
 export function saveKeyMissing(sys) {
   return h('div', { class: 'note' }, sys.mac
@@ -326,6 +399,7 @@ export async function mount(root, ctx) {
       section('Erweitert',
         row('Log', h('span', { class: 'mono' }, s.log_path), h('button', { class: 'btn btn-secondary', onclick: () => run(() => api('/api/open-log', { method: 'POST' })) }, ico('file-text'), 'Log anzeigen')),
         row('Einrichtung', 'Den Assistenten noch einmal durchlaufen', h('a', { class: 'btn btn-secondary', href: '#/einrichtung' }, ico('magic-wand'), 'Assistent öffnen'))),
+      section('Entwickler', devSection(s, save, row, toggle, option, sys, meta, async next => { s = next || await api('/api/settings'); render(); })),
     ];
     const top = body.scrollTop;
     fill(body, sections);

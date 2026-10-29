@@ -27,6 +27,11 @@ type Hooks struct {
 	MatchStarted func()            // first kickoff of a tracked match
 	MatchEnded   func(marked bool) // end of a tracked match
 	ReplayLeft   func()            // the player stopped watching a saved replay
+
+	// Lobby receives the players of an online match from every UpdateState,
+	// Winner the team that won it (0 blue, 1 orange); not for replays.
+	Lobby  func(guid string, players []Player)
+	Winner func(guid string, team int)
 }
 
 // Tracker follows matches through Stats API events. On the first kickoff of
@@ -109,6 +114,13 @@ func (t *Tracker) Handle(ev Event) {
 		t.roundStarted(ev.MatchGuid)
 	case "MatchEnded":
 		t.matchEnded(ev.MatchGuid)
+		if t.hooks.Winner != nil && ev.MatchGuid != "" && ev.Winner >= 0 && !t.inReplay {
+			t.hooks.Winner(ev.MatchGuid, ev.Winner)
+		}
+	case "UpdateState":
+		if t.hooks.Lobby != nil && ev.MatchGuid != "" && !t.inReplay {
+			t.hooks.Lobby(ev.MatchGuid, ev.Players)
+		}
 	}
 }
 

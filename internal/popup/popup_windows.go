@@ -5,6 +5,7 @@ package popup
 import (
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -163,7 +164,22 @@ const (
 	colChipHot = 0x00544a40
 	colTrack   = 0x00383028
 	colOnAccnt = 0x00100d0b
+	colOrange  = 0x003d8aff
 )
+
+// teamColors are blue and orange.
+var teamColors = [2]uint32{colAccent, colOrange}
+
+// tierColor is the color of a rank: bronze to Supersonic Legend.
+func tierColor(tier int) uint32 {
+	switch {
+	case tier <= 0:
+		return colMuted
+	case tier >= 22:
+		return 0x00ffffff
+	}
+	return [7]uint32{0x004a7ac0, 0x00cfc2b9, 0x0031b9e8, 0x00d0d45f, 0x00ffa05a, 0x00ff7cb0, 0x006e5aff}[(tier-1)/3]
+}
 
 // hit is a clickable area of a popup.
 type hit struct {
@@ -178,6 +194,7 @@ type window struct {
 	pick    func(int)
 	started time.Time
 	toast   *Toast
+	lobby   *Lobby
 	shown   time.Time
 	hover   bool
 	hot     int
@@ -195,6 +212,7 @@ type Manager struct {
 	class   *uint16
 	wins    map[uintptr]*window
 	quick   *window
+	lobby   *window
 	toasts  []*window
 	pending []Toast
 	fonts   map[[3]int32]uintptr
@@ -278,6 +296,33 @@ func (m *Manager) HideQuickSort() {
 	})
 }
 
+// ShowLobby shows the lobby at the right, vertically centered, or updates
+// the one shown.
+func (m *Manager) ShowLobby(l Lobby) {
+	m.do(func() {
+		if w := m.lobby; w != nil && w.hwnd != 0 {
+			w.lobby = &l
+			w.w, w.h = m.measure(w)
+			m.place()
+			procInvalidateRect.Call(w.hwnd, 0, 0)
+			return
+		}
+		w := &window{lobby: &l, hot: -1}
+		m.lobby = w
+		m.open(w)
+	})
+}
+
+// HideLobby removes the lobby popup.
+func (m *Manager) HideLobby() {
+	m.do(func() {
+		if m.lobby != nil {
+			m.destroy(m.lobby)
+			m.lobby = nil
+		}
+	})
+}
+
 // Toast shows a notification at the bottom right, at most three at once.
 func (m *Manager) Toast(t Toast) {
 	m.do(func() {
@@ -331,13 +376,17 @@ func (m *Manager) open(w *window) {
 	procShowWindow.Call(hwnd, swShowNoActive)
 }
 
-// place positions the prompt at the top right and stacks notifications
-// from the bottom right upwards.
+// place positions the prompt at the top right, the lobby at the right in
+// the middle and stacks notifications from the bottom right upwards.
 func (m *Manager) place() {
 	work, dpi := workArea()
 	margin := scale(16, dpi)
 	if w := m.quick; w != nil && w.hwnd != 0 {
 		procSetWindowPos.Call(w.hwnd, hwndTopmost, uintptr(work.right-w.w-margin), uintptr(work.top+margin),
+			uintptr(w.w), uintptr(w.h), swpNoActivate|swpShowWindow)
+	}
+	if w := m.lobby; w != nil && w.hwnd != 0 {
+		procSetWindowPos.Call(w.hwnd, hwndTopmost, uintptr(work.right-w.w-margin), uintptr(work.top+(work.bottom-work.top-w.h)/2),
 			uintptr(w.w), uintptr(w.h), swpNoActivate|swpShowWindow)
 	}
 	y := work.bottom - margin
@@ -365,6 +414,10 @@ func (m *Manager) closeWindow(w *window) {
 	m.destroy(w)
 	if w == m.quick {
 		m.quick = nil
+		return
+	}
+	if w == m.lobby {
+		m.lobby = nil
 		return
 	}
 	for i, t := range m.toasts {
@@ -518,6 +571,9 @@ func (m *Manager) measure(w *window) (int32, int32) {
 	hdc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, hdc)
 	width := scale(360, w.dpi)
+	if w.lobby != nil {
+		width = scale(440, w.dpi)
+	}
 	w.w, w.h = width, 2000
 	h := m.layout(hdc, w, time.Now(), false)
 	return width, h
@@ -596,6 +652,71 @@ func (m *Manager) layout(hdc uintptr, w *window, now time.Time, draw bool) int32
 		y += s(4)
 		put("Ohne Auswahl: "+q.Target, rect{inner.left, y, inner.right, y + s(18)}, 85, false, colMuted, dtSingleLine|dtEndEllipsis)
 		y += s(18)
+	}
+
+	if l := w.lobby; l != nil {
+		put(strings.ToUpper(l.Title), rect{inner.left, y, inner.right, y + s(16)}, 85, true, colMuted, dtSingleLine)
+		if l.Smurf {
+			const label = "SMURF MARKIERT"
+			lr := m.text(hdc, label, rect{0, 0, s(300), s(20)}, 80, true, colOnAccnt, dtSingleLine|dtCalcRect, dpi)
+			chip := rect{inner.right - (lr.right - lr.left) - s(16), y - s(2), inner.right, y + s(16)}
+			if draw {
+				roundRect(hdc, chip, s(6), colOrange, colOrange)
+			}
+			put(label, chip, 80, true, colOnAccnt, dtSingleLine|dtCenter|dtVCenter)
+		}
+		y += s(24)
+		nameW, cellW := s(128), s(74)
+		x0 := inner.left + nameW
+		cell := func(i int, top, bottom int32) rect {
+			return rect{x0 + int32(i)*cellW, top, x0 + int32(i+1)*cellW - s(6), bottom}
+		}
+		if len(l.Teams[0])+len(l.Teams[1]) > 0 {
+			for i, head := range []string{"1s", "2s", "3s"} {
+				put(head, cell(i, y, y+s(16)), 85, true, colMuted, dtSingleLine|dtRight)
+			}
+			put("Siege", rect{x0 + 3*cellW, y, inner.right, y + s(16)}, 85, true, colMuted, dtSingleLine|dtRight)
+			y += s(18)
+		}
+		for team, rows := range l.Teams {
+			if len(rows) == 0 {
+				continue
+			}
+			put([]string{"BLAU", "ORANGE"}[team], rect{inner.left, y, inner.right, y + s(16)}, 80, true, teamColors[team], dtSingleLine)
+			y += s(16)
+			for _, p := range rows {
+				bottom := y + s(22)
+				if draw && p.Me {
+					roundRect(hdc, rect{inner.left - s(6), y, inner.right + s(6), bottom}, s(6), colChip, colChip)
+				}
+				put(p.Name, rect{inner.left, y, x0 - s(8), bottom}, 100, p.Me, colText, dtSingleLine|dtVCenter|dtEndEllipsis)
+				for i, r := range p.Ranks {
+					c := cell(i, y, bottom)
+					switch {
+					case r.Label == "":
+						put("…", c, 95, false, colMuted, dtSingleLine|dtVCenter|dtRight)
+					case r.MMR == "":
+						put(r.Label, c, 95, false, colMuted, dtSingleLine|dtVCenter|dtRight)
+					default:
+						put(r.MMR, c, 90, false, colMuted, dtSingleLine|dtVCenter|dtRight)
+						put(r.Label, rect{c.left, y, c.right - s(34), bottom}, 95, true, tierColor(r.Tier), dtSingleLine|dtVCenter|dtRight)
+					}
+				}
+				wins := p.Wins
+				if wins == "" {
+					wins = "–"
+				}
+				put(wins, rect{x0 + 3*cellW, y, inner.right, bottom}, 90, false, colMuted, dtSingleLine|dtVCenter|dtRight)
+				y = bottom
+			}
+			y += s(8)
+		}
+		for _, line := range []string{l.Note, l.Hint} {
+			if line != "" {
+				put(line, rect{inner.left, y, inner.right, y + s(18)}, 85, false, colMuted, dtSingleLine|dtEndEllipsis)
+				y += s(18)
+			}
+		}
 	}
 
 	if t := w.toast; t != nil {

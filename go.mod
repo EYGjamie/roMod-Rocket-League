@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	fyne.io/systray v1.12.2
+	github.com/dank/rlapi v0.1.28
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/jezek/xgb v1.3.1
@@ -14,6 +15,7 @@ require (
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

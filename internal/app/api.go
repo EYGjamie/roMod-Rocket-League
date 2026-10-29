@@ -88,6 +88,16 @@ func (a *App) handler() http.Handler {
 	mux.HandleFunc("GET /api/identities", a.apiIdentities)
 	mux.HandleFunc("PUT /api/identities", a.apiSetIdentities)
 
+	mux.HandleFunc("POST /api/dev", a.apiDevMode)
+	mux.HandleFunc("DELETE /api/dev", a.apiDevMode)
+	mux.HandleFunc("GET /api/epic", a.apiEpic)
+	mux.HandleFunc("POST /api/epic", a.apiEpicLogin)
+	mux.HandleFunc("DELETE /api/epic", a.apiEpicLogout)
+	mux.HandleFunc("POST /api/epic/open", a.apiEpicOpen)
+	mux.HandleFunc("GET /api/lobby", a.apiLobby)
+	mux.HandleFunc("POST /api/lobbies/{guid}/smurf", a.apiSmurf)
+	mux.HandleFunc("GET /api/mmr", a.apiMMR)
+
 	mux.HandleFunc("GET /api/setup", a.apiSetup)
 	mux.HandleFunc("POST /api/setup/rules", a.apiSetupRules)
 	mux.HandleFunc("POST /api/setup/backfill", a.apiBackfill)
@@ -182,6 +192,8 @@ type stateView struct {
 	RuleTips  int          `json:"rule_tips"`
 	Syncing   bool         `json:"syncing"`
 	Me        []string     `json:"me"`
+	DevMode   bool         `json:"dev_mode"`
+	Lobby     bool         `json:"lobby"` // the lobby lookup of the developer mode is on
 }
 
 type accountView struct {
@@ -260,6 +272,7 @@ func (a *App) apiState(w http.ResponseWriter, r *http.Request) {
 		Version: Version, Update: update, Platform: a.desk.Platform(), SetupDone: a.config().SetupDone, Account: acc, StatsAPI: a.statsAPI.Load(),
 		InMatch: a.tracker.InMatch(), Paused: pausedView{watch, mark}, PauseKey: hotkey.Label(a.config().PauseHotkey), Queue: a.queueSummary(),
 		Inbox: len(a.inboxReplays()), RuleTips: len(tips), Syncing: a.Syncing(), Me: me,
+		DevMode: a.config().DevMode, Lobby: a.config().LobbyOn(),
 	})
 }
 
@@ -1166,18 +1179,24 @@ type settingsView struct {
 	Defaults  []string         `json:"default_dirs"`
 	Players   []store.Identity `json:"players"`
 	LogPath   string           `json:"log_path"`
+	Epic      *epicView        `json:"epic,omitempty"` // in developer mode
 }
 
 func (a *App) settingsView() settingsView {
 	cfg := a.config()
-	cfg.Token, cfg.TokenProtected = "", ""
+	cfg.Token, cfg.TokenProtected, cfg.EpicTokenProtected = "", "", ""
 	ids, _ := a.store.Identities()
 	if ids == nil {
 		ids = []store.Identity{}
 	}
 	defaults, _ := game.DefaultDemoDirs()
-	return settingsView{Config: cfg, Account: a.accountInfo(), Autostart: a.desk.Autostart(), Dirs: a.dirViews(),
+	v := settingsView{Config: cfg, Account: a.accountInfo(), Autostart: a.desk.Autostart(), Dirs: a.dirViews(),
 		Defaults: defaults, Players: ids, LogPath: a.opts.LogPath}
+	if cfg.DevMode {
+		e := a.epicInfo()
+		v.Epic = &e
+	}
+	return v
 }
 
 func (a *App) apiSettings(w http.ResponseWriter, r *http.Request) {
