@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EYGjamie/roMod-Rocket-League/internal/config"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/game"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/hotkey"
 	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
@@ -18,17 +19,26 @@ import (
 
 // The developer mode's lobby lookup: at the start of an online match the
 // Stats API lists the players, a second Epic account looks up their ranks
-// and wins, and a popup at the right shows them. A hotkey marks a smurf in
-// the lobby. Every lobby is kept for the analysis.
+// and wins, and a popup at the top shows them like the scoreboard of the
+// game. Hotkeys mark a smurf in the lobby and switch the playlist whose
+// rank it shows. Every lobby is kept for the analysis.
 
 // LobbyPopup is the popup with the ranks of the lobby.
 type LobbyPopup struct {
-	Title string // e.g. "Lobby · 2v2"
-	Note  string // state of the lookup, "" when done
-	Smurf bool
-	Hint  string // the hotkeys as shown
-	Teams [2][]LobbyRow
+	Title   string // e.g. "Lobby · 2v2"
+	Note    string // state of the lookup, "" when done
+	Busy    bool   // a lookup runs
+	Smurf   bool
+	Size    int       // players per team
+	Rank    int       // the playlist whose rank is shown, 1 to 3
+	Avg     [2]string // average MMR of the teams in that rank, "–" if none
+	Hints   []LobbyHint
+	Seconds int // until the popup closes
+	Teams   [2][]LobbyRow
 }
+
+// LobbyHint is a hotkey of the popup, e.g. Key "Strg+Alt+S", Action "Smurf".
+type LobbyHint struct{ Key, Action string }
 
 // LobbyRow is one player of the popup.
 type LobbyRow struct {
@@ -45,9 +55,11 @@ type LobbyRank struct {
 	Tier  int // 0 unranked or not known
 }
 
-// lobbySettle is how long the player list must stay the same before the
-// lookup runs: players join in the first seconds of a match.
-var lobbySettle = 2 * time.Second
+// lobbySettle gathers players who show up together into one lookup. The
+// lookup does not wait for the lobby to fill: the Stats API sends the
+// player list once a second as set up by the tool, and players who load
+// later get a lookup of their own that adds them to the popup.
+var lobbySettle = 200 * time.Millisecond
 
 type lobbyTracker struct {
 	a *App
@@ -61,6 +73,7 @@ type lobbyTracker struct {
 	lookT   *time.Timer
 	busy    bool   // a lookup runs
 	err     string // of the last lookup for cur
+	rank    int    // playlist picked with the hotkey since the start, 0 none
 }
 
 // validPlayer reports whether a Stats API ID belongs to a real account, not
@@ -263,17 +276,19 @@ func (l *lobbyTracker) winner(guid string, team int) {
 // view builds the popup; l.mu is held.
 func (l *lobbyTracker) view() LobbyPopup {
 	cfg := l.a.config()
-	v := LobbyPopup{Title: "Lobby"}
+	v := LobbyPopup{Title: "Lobby", Avg: [2]string{"–", "–"}, Seconds: cfg.LobbySeconds}
 	if l.a.opts.Hotkeys != nil {
-		var hints []string
 		if cfg.SmurfHotkey != "" {
-			hints = append(hints, hotkey.Label(cfg.SmurfHotkey)+" Smurf")
+			v.Hints = append(v.Hints, LobbyHint{hotkey.Label(cfg.SmurfHotkey), "Smurf"})
+		}
+		if cfg.RankHotkey != "" && l.a.desk.Platform().Scoreboard {
+			v.Hints = append(v.Hints, LobbyHint{hotkey.Label(cfg.RankHotkey), "1s/2s/3s"})
 		}
 		if cfg.LobbyHotkey != "" {
-			hints = append(hints, hotkey.Label(cfg.LobbyHotkey)+" schließen")
+			v.Hints = append(v.Hints, LobbyHint{hotkey.Label(cfg.LobbyHotkey), "schließen"})
 		}
-		v.Hint = strings.Join(hints, " · ")
 	}
+	v.Rank = l.playlist(cfg)
 	lob := l.cur
 	if lob == nil {
 		v.Note = "Noch kein Online-Match seit dem Start"
@@ -282,16 +297,23 @@ func (l *lobbyTracker) view() LobbyPopup {
 	if lob.Size > 0 {
 		v.Title = fmt.Sprintf("Lobby · %dv%d", lob.Size, lob.Size)
 	}
-	v.Smurf = lob.Smurf
+	v.Size, v.Smurf, v.Busy = lob.Size, lob.Smurf, l.busy
 	switch {
 	case l.busy:
 		v.Note = "Ränge werden geladen …"
 	case l.err != "":
 		v.Note = l.err
 	}
+	cur := v.Rank - 1
+	var sum [2]float64
+	var n [2]int
 	for _, p := range lob.Players {
 		if p.Left || p.Team < 0 || p.Team > 1 {
 			continue
+		}
+		if r := p.Ranks[cur]; r != nil {
+			sum[p.Team] += r.MMR
+			n[p.Team]++
 		}
 		row := LobbyRow{Name: p.Name, Me: p.Me}
 		if p.Wins >= 0 {
@@ -308,6 +330,11 @@ func (l *lobbyTracker) view() LobbyPopup {
 			v.Teams[p.Team] = append([]LobbyRow{row}, v.Teams[p.Team]...)
 		} else {
 			v.Teams[p.Team] = append(v.Teams[p.Team], row)
+		}
+	}
+	for t := range v.Avg {
+		if n[t] > 0 {
+			v.Avg[t] = strconv.Itoa(int(sum[t]/float64(n[t]) + 0.5))
 		}
 	}
 	return v
@@ -374,6 +401,41 @@ func (l *lobbyTracker) toggleSmurf() {
 		log.Printf("Lobby %s: Smurf %s", l.cur.GUID, map[bool]string{true: "markiert", false: "nicht mehr markiert"}[l.cur.Smurf])
 	}
 	l.show()
+}
+
+// playlist is the playlist whose rank the popup shows, 1 to 3: the one
+// picked with the hotkey, else the setting's, else the match's; l.mu is
+// held.
+func (l *lobbyTracker) playlist(cfg config.Config) int {
+	switch {
+	case l.rank > 0:
+		return l.rank
+	case cfg.LobbyRank > 0:
+		return cfg.LobbyRank
+	case l.cur != nil:
+		return min(max(l.cur.Size, 1), 3)
+	}
+	return 1
+}
+
+// cycleRank switches the popup to the next playlist, 1s, 2s, 3s, for the
+// hotkey, and shows it. The pick holds until the program ends; the next
+// start begins with the setting again.
+func (l *lobbyTracker) cycleRank() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rank = l.playlist(l.a.config())%3 + 1
+	l.show()
+}
+
+// resetRank drops the pick of the hotkey, when the setting changes.
+func (l *lobbyTracker) resetRank() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rank = 0
+	if l.visible {
+		l.show()
+	}
 }
 
 // setSmurf marks a stored lobby, from the interface.

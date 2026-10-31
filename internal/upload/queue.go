@@ -30,6 +30,10 @@ type Config struct {
 	API        func() API      // nil while no token is set
 	Dirs       func() []string // replay folders
 	Visibility func() string
+	// Hold, if set, keeps uploads and processing checks waiting while it
+	// returns true, e.g. during a match: they would compete with the game
+	// for the connection. Watching the folders goes on.
+	Hold func() bool
 	// Processed runs once ballchasing has processed an upload. duplicate
 	// means the replay was on ballchasing already.
 	Processed func(ctx context.Context, f store.File, r ballchasing.Replay, raw []byte, duplicate bool)
@@ -352,7 +356,7 @@ func (q *Queue) RetryAll() (int, error) {
 
 // step handles the next due file and reports whether there was one.
 func (q *Queue) step(ctx context.Context) bool {
-	if ctx.Err() != nil || q.paused.Load() || q.badToken.Load() || q.cfg.API == nil {
+	if ctx.Err() != nil || q.paused.Load() || q.badToken.Load() || q.cfg.API == nil || q.cfg.Hold != nil && q.cfg.Hold() {
 		return false
 	}
 	api := q.cfg.API()

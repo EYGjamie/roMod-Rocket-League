@@ -124,6 +124,16 @@ func (t *Tracker) Handle(ev Event) {
 	}
 }
 
+// Reset forgets the running match when the connection to the game broke,
+// e.g. because it closed in the middle of one: no MatchEnded follows.
+// Calls must not overlap with Handle.
+func (t *Tracker) Reset() {
+	t.inReplay = false
+	t.inMatch.Store(false)
+	t.stop()
+	t.cur = nil
+}
+
 // skip reports whether a match should be ignored: saved replays being
 // watched, and offline matches (which have no MatchGuid) if OnlineOnly.
 func (t *Tracker) skip(guid string) bool {

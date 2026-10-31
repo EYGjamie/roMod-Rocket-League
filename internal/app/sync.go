@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log"
 	"slices"
 	"sort"
@@ -13,48 +14,118 @@ import (
 	"github.com/EYGjamie/roMod-Rocket-League/internal/store"
 )
 
-// requestSync asks the sync loop for a run; full also re-reads all own
-// replays and the group tree.
-func (a *App) requestSync(full bool) {
+// syncKind says how much a sync reads.
+type syncKind int
+
+const (
+	syncNew      syncKind = iota // new uploads only
+	syncFull                     // all own replays, which drops replays deleted on the website, and the folder tree
+	syncComplete                 // like syncFull, looking into every folder for subfolders
+)
+
+const (
+	syncIdleEvery = time.Hour      // new uploads, unless played lately
+	fullSyncEvery = 24 * time.Hour // all own replays, if the last full sync is older
+)
+
+// Variables for tests.
+var (
+	syncEvery = 15 * time.Minute // new uploads after playing lately
+	idleCheck = 5 * time.Second  // how often held work looks whether the game closed
+)
+
+// requestSync asks the sync loop for a run of at least the given kind.
+func (a *App) requestSync(kind syncKind) {
 	select {
-	case a.syncWake <- full:
+	case a.syncWake <- kind:
+		return
 	default:
-		if full { // replace a pending quick request
-			select {
-			case <-a.syncWake:
-			default:
-			}
-			select {
-			case a.syncWake <- true:
-			default:
-			}
-		}
+	}
+	select { // replace a pending request that reads less
+	case old := <-a.syncWake:
+		kind = max(kind, old)
+	default:
+	}
+	select {
+	case a.syncWake <- kind:
+	default:
 	}
 }
 
-// syncLoop syncs fully at start and incrementally every 15 minutes.
+// syncLoop syncs at start, then looks for new uploads every 15 minutes
+// after playing lately, otherwise hourly; fully if the last full sync is a
+// day old. These automatic runs wait while Rocket League runs and start
+// once it closed; runs the interface asks for start right away.
 func (a *App) syncLoop(ctx context.Context) {
-	full := true
-	t := time.NewTicker(15 * time.Minute)
+	kind, auto, due := syncNew, true, true
+	t := time.NewTicker(syncEvery)
 	defer t.Stop()
+	held := time.NewTicker(idleCheck)
+	defer held.Stop()
+	var last time.Time
+	pinged := false
 	for {
-		if a.currentClient() != nil {
-			a.syncAll(ctx, full)
+		switch {
+		case !due || a.currentClient() == nil:
+		case !auto || !a.gameOpen():
+			if auto && a.fullSyncDue() {
+				kind = max(kind, syncFull)
+			}
+			a.syncAll(ctx, kind)
+			last, kind, auto, due = a.now(), syncNew, true, false
+		case a.myAccount().SteamID == "" && !pinged:
+			a.ping(ctx) // e.g. started while the game runs: uploads need the account
+			pinged = true
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case full = <-a.syncWake:
+		case k := <-a.syncWake:
+			kind, auto, due = max(kind, k), false, true
 		case <-t.C:
-			full = false
+			due = due || a.playing() || a.now().Sub(last) >= syncIdleEvery
+			pinged = false
+		case <-held.C: // a held run may start now
 		}
 	}
+}
+
+func (a *App) fullSyncDue() bool {
+	t, err := time.Parse(time.RFC3339, a.store.Meta("full_synced"))
+	return err != nil || a.now().Sub(t) >= fullSyncEvery
+}
+
+// playing reports whether Rocket League runs or a game ended within the
+// last hour: then teammates upload games with the user in them.
+func (a *App) playing() bool {
+	a.mu.RLock()
+	last := a.lastGame
+	a.mu.RUnlock()
+	return a.statsAPI.Load() || a.now().Sub(last) < time.Hour
+}
+
+// gameOpen reports whether Rocket League runs, as far as the Stats API
+// shows. Work in the background waits meanwhile, so only what the matches
+// need goes over the network while the user plays: uploads between
+// matches and the rank lookup.
+func (a *App) gameOpen() bool { return a.statsAPI.Load() || a.tracker.InMatch() }
+
+// waitGame returns once Rocket League is closed; false if ctx ended first.
+func (a *App) waitGame(ctx context.Context) bool {
+	for a.gameOpen() {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(idleCheck):
+		}
+	}
+	return ctx.Err() == nil
 }
 
 // Syncing reports whether a sync runs.
 func (a *App) Syncing() bool { return a.syncing.Load() }
 
-func (a *App) syncAll(ctx context.Context, full bool) {
+func (a *App) syncAll(ctx context.Context, kind syncKind) {
 	if !a.syncing.CompareAndSwap(false, true) {
 		return
 	}
@@ -66,13 +137,16 @@ func (a *App) syncAll(ctx context.Context, full bool) {
 	if a.myAccount().SteamID == "" {
 		return
 	}
+	full := kind >= syncFull
 	if full || a.store.Meta("groups_synced") == "" {
-		if err := a.syncGroups(ctx); err != nil {
+		if err := a.syncGroups(ctx, kind == syncComplete); err != nil {
 			log.Printf("Ordner abgleichen: %v", err)
 		}
 	}
 	if err := a.syncOwn(ctx, full); err != nil {
 		log.Printf("Eigene Replays abgleichen: %v", err)
+	} else if full {
+		a.store.SetMeta("full_synced", a.now().Format(time.RFC3339))
 	}
 	a.ensureIdentities()
 	if err := a.syncMates(ctx); err != nil {
@@ -86,11 +160,18 @@ func (a *App) syncAll(ctx context.Context, full bool) {
 
 // syncGroups reads the whole group tree. ballchasing lists only top-level
 // groups and the children of one group at a time, so this takes one call
-// per group.
-func (a *App) syncGroups(ctx context.Context) error {
+// per group that can have subgroups. Unless complete, a known group without
+// known subgroups and without replays in subgroups counts as a leaf: daily
+// folders would otherwise add one call per day played.
+func (a *App) syncGroups(ctx context.Context, complete bool) error {
 	c := a.currentClient()
 	if c == nil {
 		return nil
+	}
+	old, _ := a.store.Groups()
+	known, hasSub := map[string]bool{}, map[string]bool{}
+	for _, g := range old {
+		known[g.ID], hasSub[g.Parent] = true, true
 	}
 	var all []store.Group
 	parents := []string{""}
@@ -105,7 +186,9 @@ func (a *App) syncGroups(ctx context.Context) error {
 			created, _ := time.Parse(time.RFC3339, g.Created)
 			all = append(all, store.Group{ID: g.ID, Name: g.Name, Parent: parent, Created: created,
 				Direct: g.DirectReplays, Indirect: g.IndirectReplays})
-			parents = append(parents, g.ID)
+			if complete || !known[g.ID] || hasSub[g.ID] || g.IndirectReplays > g.DirectReplays {
+				parents = append(parents, g.ID)
+			}
 		}
 	}
 	if err := a.store.ReplaceGroups(all); err != nil {
@@ -206,28 +289,78 @@ func (a *App) syncMates(ctx context.Context) error {
 	return nil
 }
 
+const (
+	detailEvery   = 6 * time.Second
+	detailOffline = time.Minute // pause while ballchasing is unreachable or the token invalid
+)
+
+// detailRetry is when to ask again for a replay that brought no statistics.
+type detailRetry struct {
+	at   time.Time
+	wait time.Duration
+}
+
 // detailLoop fetches missing statistics slowly in the background, keeping
-// well below the hourly limit of the replay endpoint.
+// well below the hourly limit of the replay endpoint. It rests while
+// Rocket League runs and while ballchasing is unreachable. A replay that brings no
+// statistics (still processing, failed, an error) is asked for again after
+// 15 minutes, then less and less often, instead of every few seconds.
 func (a *App) detailLoop(ctx context.Context) {
-	t := time.NewTicker(6 * time.Second)
-	defer t.Stop()
+	later := map[string]detailRetry{}
+	wait := detailEvery
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-time.After(wait):
 		}
-		if watch, _ := a.pausedState(); watch || a.queueBusy() {
-			continue
-		}
-		ids, _ := a.store.WithoutDetail(1)
-		if len(ids) == 0 {
-			continue
-		}
-		if err := a.fetchDetail(ctx, ids[0]); err != nil && ballchasing.Unavailable(err) {
-			continue
+		wait = a.detailStep(ctx, later)
+	}
+}
+
+// detailStep fetches the statistics of the next due replay, if any, and
+// returns the pause before the next step.
+func (a *App) detailStep(ctx context.Context, later map[string]detailRetry) time.Duration {
+	if watch, _ := a.pausedState(); watch || a.gameOpen() || a.currentClient() == nil || a.queueBusy() {
+		return detailEvery
+	}
+	id := a.nextWithoutDetail(later)
+	if id == "" {
+		return detailEvery
+	}
+	err := a.fetchDetail(ctx, id)
+	switch {
+	case err != nil && (ballchasing.Unavailable(err) || errors.Is(err, ballchasing.ErrBadToken)):
+		return detailOffline
+	case a.hasDetail(id):
+		delete(later, id)
+	default:
+		r := later[id]
+		r.wait = min(max(2*r.wait, 15*time.Minute), 24*time.Hour)
+		r.at = a.now().Add(r.wait)
+		later[id] = r
+	}
+	return detailEvery
+}
+
+// nextWithoutDetail returns the next replay to fetch statistics for, "" if
+// none is due.
+func (a *App) nextWithoutDetail(later map[string]detailRetry) string {
+	ids, _ := a.store.WithoutDetail(len(later) + 1)
+	now := a.now()
+	for _, id := range ids {
+		if r, ok := later[id]; !ok || !now.Before(r.at) {
+			return id
 		}
 	}
+	return ""
+}
+
+// hasDetail reports whether a replay's statistics are stored, or the
+// replay is gone.
+func (a *App) hasDetail(id string) bool {
+	r, ok, _ := a.store.Replay(id)
+	return !ok || r.HasDetail
 }
 
 func (a *App) queueBusy() bool {

@@ -54,13 +54,14 @@ type Desktop interface {
 
 // Platform tells the interface what the system side offers.
 type Platform struct {
-	OS        string `json:"os"`         // windows, darwin or linux
-	Overlay   bool   `json:"overlay"`    // an own window over the game, else the browser
-	Tray      bool   `json:"tray"`       // an icon in the notification area or menu bar
-	Autostart bool   `json:"autostart"`  // starting at sign-in can be switched
-	Hotkeys   bool   `json:"hotkeys"`    // system-wide hotkeys
-	SaveKey   bool   `json:"save_key"`   // the game's save key can be pressed
-	QuickSort bool   `json:"quick_sort"` // the quick-sort prompt takes a choice
+	OS         string `json:"os"`         // windows, darwin or linux
+	Overlay    bool   `json:"overlay"`    // an own window over the game, else the browser
+	Tray       bool   `json:"tray"`       // an icon in the notification area or menu bar
+	Autostart  bool   `json:"autostart"`  // starting at sign-in can be switched
+	Hotkeys    bool   `json:"hotkeys"`    // system-wide hotkeys
+	SaveKey    bool   `json:"save_key"`   // the game's save key can be pressed
+	QuickSort  bool   `json:"quick_sort"` // the quick-sort prompt takes a choice
+	Scoreboard bool   `json:"scoreboard"` // the lobby popup shows one rank per player, notifications all three
 }
 
 // QuickSort is the prompt shown over the game after an upload.
@@ -135,7 +136,7 @@ type App struct {
 	statsAPI atomic.Bool
 	syncing  atomic.Bool
 	release  atomic.Pointer[release] // newer release on GitHub, nil if none
-	syncWake chan bool               // true = full sync
+	syncWake chan syncKind
 
 	groupStats statsCache
 
@@ -160,7 +161,7 @@ func New(opts Options) (*App, error) {
 		opts.MMR = func(o mmr.Options) MMR { return mmr.New(o) }
 	}
 	a := &App{opts: opts, dataDir: filepath.Dir(opts.ConfigPath), desk: opts.Desktop, events: newHub(), notified: opts.Now(),
-		now: opts.Now, account: "none", syncWake: make(chan bool, 1), ctx: context.Background()}
+		now: opts.Now, account: "none", syncWake: make(chan syncKind, 1), ctx: context.Background()}
 	a.quick = &quickSorter{a: a}
 	a.lobby = &lobbyTracker{a: a}
 
@@ -197,6 +198,7 @@ func New(opts Options) (*App, error) {
 		},
 		Dirs:       a.demoDirs,
 		Visibility: func() string { return a.config().Visibility },
+		Hold:       func() bool { return a.tracker.InMatch() },
 		Processed:  a.processed,
 		Failed:     a.uploadFailed,
 		Changed:    func() { a.events.publish("queue"); a.updateTray() },
@@ -324,7 +326,9 @@ func (a *App) Run(ctx context.Context) {
 	go a.detailLoop(ctx)
 	go a.housekeeping(ctx)
 	go a.autoEnableStatsAPI()
-	go a.watchUpdates(ctx)
+	if Version != "dev" { // own builds have nothing to compare
+		go a.watchUpdates(ctx, Version)
+	}
 
 	if !a.config().SetupDone {
 		a.desk.ShowOverlay("einrichtung")
@@ -354,8 +358,12 @@ func (a *App) housekeeping(ctx context.Context) {
 
 func (a *App) statsAPIConnected(up bool) {
 	a.statsAPI.Store(up)
+	if !up {
+		a.tracker.Reset() // maybe closed in the middle of a match
+	}
 	a.events.publish("state")
 	if up {
+		a.mmr.GameStarted()
 		go a.connectEpic()
 		return
 	}
@@ -374,6 +382,7 @@ func (a *App) matchEnded(marked bool) {
 	a.lastGame = a.now()
 	a.mu.Unlock()
 	a.events.publish("state")
+	go a.connectEpic() // if the connection dropped, open it again before the next lobby
 	time.AfterFunc(3*time.Second, a.flushToasts)
 }
 
@@ -436,7 +445,7 @@ func (a *App) bindHotkeys(old, cur config.Config) {
 				open = "Oberfläche öffnen"
 			}
 			log.Printf("%s: %s", key, map[string]string{"overlay": open, "pause": "Pausieren und fortsetzen",
-				"lobby": "Lobby öffnen und schließen", "smurf": "Smurf in der Lobby markieren"}[name])
+				"lobby": "Lobby öffnen und schließen", "smurf": "Smurf in der Lobby markieren", "rank": "Rang in der Lobby wechseln"}[name])
 		}
 	}
 	bind("overlay", old.GUIHotkey, cur.GUIHotkey, a.desk.ToggleOverlay)
@@ -449,6 +458,9 @@ func (a *App) bindHotkeys(old, cur config.Config) {
 	}
 	bind("lobby", lobbyKey(old, old.LobbyHotkey), lobbyKey(cur, cur.LobbyHotkey), a.lobby.toggle)
 	bind("smurf", lobbyKey(old, old.SmurfHotkey), lobbyKey(cur, cur.SmurfHotkey), a.lobby.toggleSmurf)
+	if a.desk.Platform().Scoreboard {
+		bind("rank", lobbyKey(old, old.RankHotkey), lobbyKey(cur, cur.RankHotkey), a.lobby.cycleRank)
+	}
 }
 
 // UpdateSettings applies a partial settings object as sent by the
@@ -503,7 +515,7 @@ func (a *App) SetToken(ctx context.Context, token string) (ballchasing.Me, error
 	}
 	log.Printf("Bei ballchasing angemeldet als %s", me.Name)
 	a.queue.TokenChanged()
-	a.requestSync(true)
+	a.requestSync(syncComplete)
 	a.events.publish("state")
 	return me, nil
 }

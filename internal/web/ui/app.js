@@ -75,7 +75,8 @@ function renderFoot(lost) {
   fill(document.getElementById('foot'),
     quota ? h('span', { class: 'num' + (quota.full ? ' err' : '') }, `${quota.used} / ${quota.max} Uploads (24 h)`) : null,
     problem ? h('a', { href: acc.status === 'none' ? '#/einrichtung' : '#/einstellungen' }, problem) : null,
-    state.queue?.offline ? h('span', null, 'Uploads warten') : null,
+    state.queue?.offline ? h('span', null, 'Uploads warten')
+      : state.in_match && state.queue?.active ? h('span', null, 'Upload nach dem Match') : null,
     state.syncing ? h('span', null, 'Abgleich läuft …') : null,
     state.update ? h('a', { class: 'upd', href: '#', onclick: e => { e.preventDefault(); installUpdate(); } }, 'Update auf ' + state.update) : null,
     h('button', { class: 'pause' + (any ? ' on' : ''), title: 'Pausieren oder fortsetzen', onclick: () => run(() => api('/api/pause', { method: 'POST', body: { watch: !any, mark: !any } })) },

@@ -219,7 +219,10 @@ func (d *desk) ShowQuickSort(q app.QuickSort, pick func(int)) {
 func (d *desk) HideQuickSort() { d.pop.HideQuickSort() }
 
 func (d *desk) ShowLobby(l app.LobbyPopup) {
-	pl := popup.Lobby{Title: l.Title, Note: l.Note, Smurf: l.Smurf, Hint: l.Hint}
+	pl := popup.Lobby{Title: l.Title, Note: l.Note, Busy: l.Busy, Smurf: l.Smurf, Size: l.Size, Rank: l.Rank, Avg: l.Avg, Seconds: l.Seconds}
+	for _, h := range l.Hints {
+		pl.Hints = append(pl.Hints, popup.Hint(h))
+	}
 	for team, rows := range l.Teams {
 		for _, r := range rows {
 			p := popup.LobbyPlayer{Name: r.Name, Me: r.Me, Wins: r.Wins}
@@ -257,13 +260,14 @@ func (d *desk) PickFiles() []string { return desktop.PickFiles(d.replayDir()) }
 
 func (d *desk) Platform() app.Platform {
 	return app.Platform{
-		OS:        runtime.GOOS,
-		Overlay:   overlay.Native,
-		Tray:      desktop.HasTray,
-		Autostart: desktop.HasAutostart,
-		Hotkeys:   d.hotkeys,
-		SaveKey:   d.saveKey,
-		QuickSort: d.pop.Interactive(),
+		OS:         runtime.GOOS,
+		Overlay:    overlay.Native,
+		Tray:       desktop.HasTray,
+		Autostart:  desktop.HasAutostart,
+		Hotkeys:    d.hotkeys,
+		SaveKey:    d.saveKey,
+		QuickSort:  d.pop.Interactive(),
+		Scoreboard: runtime.GOOS == "windows", // macOS and Linux show the lobby as a notification
 	}
 }
 

@@ -26,11 +26,6 @@ type Version struct {
 // VersionURL is the file of rlapi with the version of the current game.
 const VersionURL = "https://raw.githubusercontent.com/dank/rlapi/master/psynet.go"
 
-const (
-	versionEvery = 12 * time.Hour   // look for a new version this often
-	versionRetry = 10 * time.Minute // or after a failed sign-in, at most this often
-)
-
 // Builtin is the version the rlapi of this build knows.
 func Builtin() Version {
 	p := rlapi.NewPsyNet()
@@ -116,13 +111,9 @@ func newest(stored Version) Version {
 	return stored
 }
 
-// updateVersion looks on GitHub for a newer version, unless it looked less
-// than wait ago, and reports whether it took one. mu is held.
-func (c *Client) updateVersion(ctx context.Context, wait time.Duration) bool {
-	if !c.checked.IsZero() && time.Since(c.checked) < wait {
-		return false
-	}
-	c.checked = time.Now()
+// updateVersion looks on GitHub for a newer version and reports whether it
+// took one. mu is held.
+func (c *Client) updateVersion(ctx context.Context) bool {
 	v, err := c.opts.Fetch(ctx)
 	if err != nil {
 		log.Printf("MMR-Abfrage: Spielversion von rlapi nicht abrufbar: %v", err)

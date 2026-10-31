@@ -79,7 +79,7 @@ func (d *fakeDesk) RunElevated(...string) error { return errors.ErrUnsupported }
 func (d *fakeDesk) Platform() Platform {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return Platform{OS: "test", Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: d.quickSort}
+	return Platform{OS: "test", Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: d.quickSort, Scoreboard: true}
 }
 func (d *fakeDesk) Recycle(path string) error {
 	d.mu.Lock()
@@ -379,7 +379,7 @@ func TestSyncMergesOwnAndMatesReplays(t *testing.T) {
 	liga := ta.fake.AddGroup(ballchasingtest.Group{Name: "Liga"})
 	ta.fake.AddGroup(ballchasingtest.Group{Name: "Spieltag 1", Parent: liga})
 
-	ta.syncAll(context.Background(), true)
+	ta.syncAll(context.Background(), syncComplete)
 
 	var list listResult
 	ta.call("GET", "/api/replays?status=uploaded", "", &list)
@@ -530,7 +530,7 @@ func TestSettingsAndToken(t *testing.T) {
 func TestBorrowAndCleanup(t *testing.T) {
 	ta := newTestApp(t, nil)
 	id := ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private"})
-	ta.syncAll(context.Background(), true)
+	ta.syncAll(context.Background(), syncComplete)
 	var res map[string]string
 	if code := ta.call("POST", "/api/replays/"+id+"/borrow", "", &res); code != 200 || res["name"] != "bc-"+id+".replay" {
 		t.Fatalf("borrow: %d %v", code, res)
@@ -587,7 +587,7 @@ func TestDeleteOnlyEmptyFolders(t *testing.T) {
 	empty := ta.fake.AddGroup(ballchasingtest.Group{Name: "Leer"})
 	id := ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private"})
 	ta.API().SetGroup(context.Background(), id, full)
-	ta.syncAll(context.Background(), true)
+	ta.syncAll(context.Background(), syncComplete)
 	var e map[string]any
 	if code := ta.call("DELETE", "/api/groups/"+full, "", &e); code != http.StatusConflict {
 		t.Errorf("deleting a full folder: %d", code)
@@ -604,7 +604,7 @@ func TestFolderStats(t *testing.T) {
 	ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private", Group: liga,
 		Blue:   []ballchasingtest.Player{{Name: "Jamie", PID: "steam:" + ta.fake.Me.SteamID, Goals: 2, Shots: 4}},
 		Orange: []ballchasingtest.Player{{Name: "Gegner", PID: "epic:x", Goals: 1, Shots: 1}}})
-	ta.syncAll(context.Background(), true)
+	ta.syncAll(context.Background(), syncComplete)
 
 	type stats struct {
 		Group struct {
@@ -651,7 +651,7 @@ func TestMoveFolders(t *testing.T) {
 	archiv := ta.fake.AddGroup(ballchasingtest.Group{Name: "Archiv"})
 	id := ta.fake.AddReplay(ballchasingtest.Replay{PlaylistID: "private"})
 	ta.API().SetGroup(context.Background(), id, tag)
-	ta.syncAll(context.Background(), true)
+	ta.syncAll(context.Background(), syncComplete)
 
 	count := func(id string) int {
 		groups, _ := ta.store.Groups()

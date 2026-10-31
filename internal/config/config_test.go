@@ -78,6 +78,8 @@ func TestValidate(t *testing.T) {
 		"same combo":   func(c *Config) { c.QuickSortHotkeys[2] = "strg+alt+b" },
 		"quick hotkey": func(c *Config) { c.QuickSortHotkeys[0] = "Ctrl+Alt+Ä" },
 		"lobby time":   func(c *Config) { c.LobbySeconds = 0 },
+		"lobby rank":   func(c *Config) { c.LobbyRank = 4 },
+		"rank combo":   func(c *Config) { c.DevMode, c.MMR, c.RankHotkey = true, true, c.SmurfHotkey },
 		"lobby combo":  func(c *Config) { c.DevMode, c.MMR, c.SmurfHotkey = true, true, c.PauseHotkey },
 		"lobby hotkey": func(c *Config) { c.DevMode, c.MMR, c.LobbyHotkey = true, true, "Ctrl+Nix" },
 	} {

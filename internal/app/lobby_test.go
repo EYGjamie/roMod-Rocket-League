@@ -18,6 +18,8 @@ type fakeMMR struct {
 	found    map[string]mmr.Player
 	err      error
 	looked   [][]string
+	connects int
+	started  int
 	save     func(token, name string)
 }
 
@@ -28,11 +30,17 @@ func (f *fakeMMR) Login(ctx context.Context, code string) (string, error) {
 	f.save("refresh-"+code, "Zweitkonto")
 	return "Zweitkonto", nil
 }
-func (f *fakeMMR) Logout()                           { f.mu.Lock(); f.signedIn = false; f.mu.Unlock(); f.save("", "") }
-func (f *fakeMMR) SignedIn() bool                    { f.mu.Lock(); defer f.mu.Unlock(); return f.signedIn }
-func (f *fakeMMR) Connect(ctx context.Context) error { return nil }
-func (f *fakeMMR) Version() mmr.Version              { return mmr.Builtin() }
-func (f *fakeMMR) Close()                            {}
+func (f *fakeMMR) Logout()        { f.mu.Lock(); f.signedIn = false; f.mu.Unlock(); f.save("", "") }
+func (f *fakeMMR) SignedIn() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.signedIn }
+func (f *fakeMMR) GameStarted()   { f.mu.Lock(); defer f.mu.Unlock(); f.started++ }
+func (f *fakeMMR) Connect(ctx context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connects++
+	return nil
+}
+func (f *fakeMMR) Version() mmr.Version { return mmr.Builtin() }
+func (f *fakeMMR) Close()               {}
 func (f *fakeMMR) Lookup(ctx context.Context, ids []string) (map[string]mmr.Player, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -79,8 +87,11 @@ func TestLobbyLookupPopupAndSmurf(t *testing.T) {
 	ta.waitFor("popup", func() bool { _, up, _ := ta.desk.lastLobby(); return up })
 
 	p, _, _ := ta.desk.lastLobby()
-	if p.Title != "Lobby · 2v2" || p.Note != "" || p.Smurf {
+	if p.Title != "Lobby · 2v2" || p.Note != "" || p.Smurf || p.Busy || p.Size != 2 || p.Seconds != 15 {
 		t.Errorf("popup = %+v", p)
+	}
+	if p.Avg != [2]string{"1087", "1225"} {
+		t.Errorf("averages = %v, want the 2s MMR of Jamie and Max, Rook and Sly", p.Avg)
 	}
 	if len(p.Teams[0]) != 2 || !p.Teams[0][0].Me || p.Teams[0][0].Name != "Jamie" || len(p.Teams[1]) != 2 {
 		t.Fatalf("teams = %+v, want Jamie first in blue, two in orange and no bot", p.Teams)
@@ -104,6 +115,7 @@ func TestLobbyLookupPopupAndSmurf(t *testing.T) {
 		t.Error("popup does not show the smurf")
 	}
 	ta.tracker.Handle(game.Event{Name: "MatchEnded", MatchGuid: "G1", Winner: 0})
+	ta.waitFor("connection checked for the next lobby", func() bool { ta.mmr.mu.Lock(); defer ta.mmr.mu.Unlock(); return ta.mmr.connects == 1 })
 	l, ok, _ := ta.store.Lobby("G1")
 	if !ok || !l.Smurf || l.Winner != 0 || l.Size != 2 || len(l.Players) != 4 {
 		t.Fatalf("stored lobby = %+v", l)
@@ -144,6 +156,55 @@ func TestLobbyLateJoinerAndToggle(t *testing.T) {
 	if len(l.Players) != 3 || !l.Players[1].Left {
 		t.Errorf("players = %+v, want Rook marked as left", l.Players)
 	}
+}
+
+func TestLobbyRankHotkey(t *testing.T) {
+	ta, me := lobbyApp(t)
+	ta.updateState("G1", game.Player{Name: "Jamie", PrimaryID: me}, game.Player{Name: "Max", PrimaryID: "Epic|m|0"},
+		game.Player{Name: "Rook", PrimaryID: "Epic|o1|0", Team: 1}, game.Player{Name: "Sly", PrimaryID: "PS4|o2|0", Team: 1})
+	ta.waitFor("popup", func() bool { p, up, _ := ta.desk.lastLobby(); return up && !p.Busy && p.Teams[1] != nil })
+	check := func(step string, rank int, avg [2]string) {
+		t.Helper()
+		if p, up, _ := ta.desk.lastLobby(); !up || p.Rank != rank || p.Avg != avg {
+			t.Errorf("%s: rank %d, averages %v, shown %v; want %d, %v", step, p.Rank, p.Avg, up, rank, avg)
+		}
+	}
+	check("match", 2, [2]string{"1087", "1225"})
+	ta.lobby.cycleRank()
+	check("first press", 3, [2]string{"–", "–"})
+	ta.lobby.cycleRank()
+	check("second press", 1, [2]string{"905", "–"})
+	ta.lobby.hide()
+	ta.lobby.toggle()
+	check("opened again", 1, [2]string{"905", "–"})
+
+	if _, err := ta.UpdateSettings([]byte(`{"lobby_rank":3}`)); err != nil {
+		t.Fatal(err)
+	}
+	check("new default", 3, [2]string{"–", "–"})
+	ta.lobby.cycleRank()
+	check("press after it", 1, [2]string{"905", "–"})
+	if ta.Config().LobbyRank != 3 {
+		t.Errorf("setting = %d, the hotkey must not change it", ta.Config().LobbyRank)
+	}
+	if _, err := ta.UpdateSettings([]byte(`{"lobby_rank":4}`)); err == nil {
+		t.Error("lobby_rank 4 accepted")
+	}
+}
+
+func TestGameVersionLookedForAtGameStartOnly(t *testing.T) {
+	ta, _ := lobbyApp(t)
+	started := func() int { ta.mmr.mu.Lock(); defer ta.mmr.mu.Unlock(); return ta.mmr.started }
+	ta.statsAPIConnected(true)
+	if started() != 1 {
+		t.Errorf("game start: %d", started())
+	}
+	ta.tracker.Handle(game.Event{Name: "MatchEnded", MatchGuid: "G1", Winner: 0})
+	ta.waitFor("reconnect after the match", func() bool { ta.mmr.mu.Lock(); defer ta.mmr.mu.Unlock(); return ta.mmr.connects == 2 })
+	if started() != 1 {
+		t.Error("the reconnect after a match looks for the game version too")
+	}
+	ta.statsAPI.Store(false) // without ending the session
 }
 
 func TestLobbyNeedsDevMode(t *testing.T) {

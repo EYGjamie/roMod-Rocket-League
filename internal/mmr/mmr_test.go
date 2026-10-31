@@ -2,6 +2,7 @@ package mmr
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -75,14 +76,11 @@ func TestUpdateVersion(t *testing.T) {
 		t.Errorf("stored older version %+v won over the built-in one", c.Version())
 	}
 
-	if !c.updateVersion(context.Background(), versionEvery) || c.Version() != newer || len(saved) != 1 {
+	if !c.updateVersion(context.Background()) || c.Version() != newer || len(saved) != 1 || calls != 1 {
 		t.Errorf("newer version not taken: %+v, saved %v", c.Version(), saved)
 	}
-	if c.updateVersion(context.Background(), versionEvery) || calls != 1 {
-		t.Errorf("looked again within the interval (%d calls)", calls)
-	}
 	fetched = older
-	if c.updateVersion(context.Background(), 0) || c.Version() != newer {
+	if c.updateVersion(context.Background()) || c.Version() != newer {
 		t.Errorf("went back to an older version: %+v", c.Version())
 	}
 	if p := c.psyNet(); p == nil {
@@ -92,5 +90,33 @@ func TestUpdateVersion(t *testing.T) {
 	}
 	if c := New(Options{Save: func(string, string) {}, Version: newer}); c.Version() != newer {
 		t.Errorf("stored newer version not used: %+v", c.Version())
+	}
+}
+
+func TestVersionLookOncePerGameStart(t *testing.T) {
+	calls := 0
+	c := New(Options{Save: func(string, string) {}, Token: "refresh",
+		Fetch: func(context.Context) (Version, error) { calls++; return Version{}, errors.New("offline") }})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // stops each connection right after the look, before Epic
+	connect := func(ahead bool) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.connectLocked(ctx, ahead)
+	}
+
+	connect(true)
+	if calls != 0 {
+		t.Fatal("looked on GitHub without a game start")
+	}
+	c.GameStarted()
+	connect(false)
+	if calls != 0 {
+		t.Fatal("looked on GitHub while a lookup waits")
+	}
+	connect(true)
+	connect(true)
+	if calls != 1 {
+		t.Errorf("%d looks after one game start, want 1", calls)
 	}
 }

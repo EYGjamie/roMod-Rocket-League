@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/dank/rlapi"
 )
@@ -58,11 +57,11 @@ type Client struct {
 	egs      *rlapi.EGS
 	signedIn atomic.Bool             // token != "", readable while a sign-in runs
 	version  atomic.Pointer[Version] // of the game, readable likewise
+	started  atomic.Bool             // the game started since the last look for its version
 	mu       sync.Mutex
 	token    string // refresh token of the Epic Games Launcher sign-in
 	name     string
 	rpc      *rlapi.PsyNetRPC
-	checked  time.Time // last look for a new version
 }
 
 // New returns a client for a stored refresh token.
@@ -118,7 +117,7 @@ func (c *Client) Login(ctx context.Context, code string) (string, error) {
 	defer c.mu.Unlock()
 	c.closeLocked()
 	c.keep(auth.RefreshToken, auth.DisplayName)
-	if err := c.connectLocked(ctx); err != nil {
+	if err := c.connectLocked(ctx, true); err != nil {
 		return c.name, err
 	}
 	return c.name, nil
@@ -136,11 +135,17 @@ func (c *Client) Logout() {
 // not wait for a sign-in in progress.
 func (c *Client) SignedIn() bool { return c.signedIn.Load() }
 
-// Connect opens the connection ahead of the first lookup.
+// GameStarted makes the next connection look on GitHub for a new game
+// version first. The version only changes with an update of the game, and
+// that comes before it starts.
+func (c *Client) GameStarted() { c.started.Store(true) }
+
+// Connect opens the connection ahead of the next lookup, unless it is
+// still open.
 func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.connectLocked(ctx)
+	return c.connectLocked(ctx, true)
 }
 
 // Close ends the connection; the next lookup opens a new one.
@@ -158,14 +163,19 @@ func (c *Client) closeLocked() {
 }
 
 // connectLocked signs in again with the refresh token and opens the
-// WebSocket of PsyNet, unless it is still open.
-func (c *Client) connectLocked(ctx context.Context) error {
+// WebSocket of PsyNet, unless it is still open. If the game started since
+// the last look, it first looks on GitHub for a new game version, but only
+// ahead of a lookup, not while one waits.
+func (c *Client) connectLocked(ctx context.Context, ahead bool) error {
 	if c.rpc != nil && c.rpc.IsConnected() {
 		return nil
 	}
 	c.rpc = nil
 	if c.token == "" {
 		return ErrSignedOut
+	}
+	if ahead && c.started.Swap(false) {
+		c.updateVersion(ctx)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -188,12 +198,7 @@ func (c *Client) connectLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("Epic Online Services: %w", err)
 	}
-	c.updateVersion(ctx, versionEvery)
 	rpc, err := c.psyNet().AuthPlayer(eos.AccessToken, eos.AccountID, auth.DisplayName)
-	if err != nil && c.updateVersion(ctx, versionRetry) {
-		// the game was probably updated: once more with the version rlapi has now
-		rpc, err = c.psyNet().AuthPlayer(eos.AccessToken, eos.AccountID, auth.DisplayName)
-	}
 	if err != nil {
 		return fmt.Errorf("Rocket League (Spielversion %s): %w", c.version.Load().Game, err)
 	}
@@ -207,7 +212,7 @@ func (c *Client) Lookup(ctx context.Context, ids []string) (map[string]Player, e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for retry := false; ; retry = true {
-		if err := c.connectLocked(ctx); err != nil {
+		if err := c.connectLocked(ctx, false); err != nil {
 			return nil, err
 		}
 		out, err := lookup(ctx, c.rpc, ids)
@@ -225,6 +230,16 @@ func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string
 		pids[i] = rlapi.PlayerID(id)
 		byKey[key(id)] = id
 	}
+	// both questions go out at once, so the answer takes one round trip
+	type winsResult struct {
+		res *rlapi.GetStatLeaderboardRankForUsersResponse
+		err error
+	}
+	winsCh := make(chan winsResult, 1)
+	go func() {
+		res, err := rpc.GetStatLeaderboardRankForUsers(ctx, "Wins", pids)
+		winsCh <- winsResult{res, err}
+	}()
 	skills, err := rpc.GetPlayersSkills(ctx, pids)
 	if err != nil {
 		return nil, fmt.Errorf("Ränge: %w", err)
@@ -243,12 +258,12 @@ func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string
 		}
 		out[id] = found
 	}
-	wins, err := rpc.GetStatLeaderboardRankForUsers(ctx, "Wins", pids)
-	if err != nil {
-		log.Printf("MMR-Abfrage: Siege nicht abrufbar: %v", err) // the ranks are still worth showing
+	wins := <-winsCh
+	if wins.err != nil {
+		log.Printf("MMR-Abfrage: Siege nicht abrufbar: %v", wins.err) // the ranks are still worth showing
 		return out, nil
 	}
-	for _, w := range wins.Players {
+	for _, w := range wins.res.Players {
 		if id, ok := byKey[key(string(w.PlayerID))]; ok {
 			p := out[id]
 			p.Wins = int(w.Value)

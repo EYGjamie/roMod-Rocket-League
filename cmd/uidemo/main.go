@@ -57,7 +57,7 @@ func (d demoDesktop) Platform() app.Platform    { return d.platform }
 
 // platforms are what each system offers in a usual setup.
 var platforms = map[string]app.Platform{
-	"windows": {OS: "windows", Overlay: true, Tray: true, Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: true},
+	"windows": {OS: "windows", Overlay: true, Tray: true, Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: true, Scoreboard: true},
 	"linux":   {OS: "linux", Tray: true, Autostart: true, Hotkeys: true, SaveKey: true, QuickSort: true},
 	"darwin":  {OS: "darwin", Tray: true, Autostart: true},
 }
@@ -296,6 +296,7 @@ func (m *demoMMR) Login(ctx context.Context, code string) (string, error) {
 }
 func (m *demoMMR) Logout()                       { m.signedIn = false; m.save("", "") }
 func (m *demoMMR) SignedIn() bool                { return m.signedIn }
+func (m *demoMMR) GameStarted()                  {}
 func (m *demoMMR) Connect(context.Context) error { return nil }
 func (m *demoMMR) Close()                        {}
 func (m *demoMMR) Version() mmr.Version          { return mmr.Builtin() }

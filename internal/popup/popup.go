@@ -33,12 +33,20 @@ type Action struct {
 
 // Lobby is the popup with the ranks and wins of the players in the match.
 type Lobby struct {
-	Title string // e.g. "Lobby · 2v2"
-	Note  string // state of the lookup, "" when done
-	Smurf bool   // the user marked a smurf in the lobby
-	Hint  string // the hotkeys as shown
-	Teams [2][]LobbyPlayer
+	Title   string    // e.g. "Lobby · 2v2"
+	Note    string    // state of the lookup, "" when done
+	Busy    bool      // the lookup runs
+	Smurf   bool      // the user marked a smurf in the lobby
+	Size    int       // players per team, a place for each
+	Rank    int       // the playlist whose rank the popup shows, 1 to 3
+	Avg     [2]string // average MMR of the teams in it, "–" if not known
+	Hints   []Hint    // the hotkeys
+	Seconds int       // until the popup closes again
+	Teams   [2][]LobbyPlayer
 }
+
+// Hint is a hotkey as shown, e.g. Key "Strg+Alt+S" and Action "Smurf".
+type Hint struct{ Key, Action string }
 
 // LobbyPlayer is one row of the lobby popup.
 type LobbyPlayer struct {

@@ -23,6 +23,7 @@ type env struct {
 	processed []string // file names, with " (dup)" for duplicates
 	failed    []string
 	api       API
+	hold      bool // a match runs
 }
 
 func newEnv(t *testing.T) *env {
@@ -39,6 +40,7 @@ func newEnv(t *testing.T) *env {
 		API:        func() API { return e.api },
 		Dirs:       func() []string { return []string{e.dir, filepath.Join(e.dir, "fehlt")} },
 		Visibility: func() string { return "unlisted" },
+		Hold:       func() bool { return e.hold },
 		Processed: func(_ context.Context, f store.File, r ballchasing.Replay, _ []byte, dup bool) {
 			name := f.Name
 			if dup {
@@ -333,5 +335,46 @@ func TestPauseMissingFileAndOldReplays(t *testing.T) {
 	e.q.scan()
 	if f := e.file("neu.replay"); f.State != store.Queued {
 		t.Errorf("file saved during the pause: %+v", f)
+	}
+}
+
+func TestHoldsUploadsAndChecksDuringAMatch(t *testing.T) {
+	e := newEnv(t)
+	tmpl := e.fake.Template
+	e.fake.Template = func(file string) ballchasingtest.Replay {
+		r := tmpl(file)
+		r.PendingPolls = 2
+		return r
+	}
+	e.hold = true
+	e.write("im-match.replay", "x")
+	e.q.scan()
+	e.q.scan()
+	if f := e.file("im-match.replay"); f.State != store.Queued {
+		t.Fatalf("not seen during the match: %+v", f)
+	}
+	e.drain()
+	if f := e.file("im-match.replay"); f.State != store.Queued || f.ReplayID != "" {
+		t.Fatalf("uploaded during the match: %+v", f)
+	}
+
+	e.hold = false
+	e.drain() // upload and a first check: still pending
+	f := e.file("im-match.replay")
+	if f.State != store.Processing {
+		t.Fatalf("after the match: %+v", f)
+	}
+	e.hold = true
+	e.now = e.now.Add(time.Minute)
+	e.drain()
+	if r, _ := e.fake.Replay(f.ReplayID); r.PendingPolls != 1 {
+		t.Fatal("checked for processing during the next match")
+	}
+	e.hold = false
+	e.drain() // pending once more
+	e.now = e.now.Add(3 * time.Second)
+	e.drain()
+	if f := e.file("im-match.replay"); f.State != store.Done || !slices.Equal(e.processed, []string{"im-match.replay"}) {
+		t.Errorf("after the next match: %+v, processed %v", f, e.processed)
 	}
 }

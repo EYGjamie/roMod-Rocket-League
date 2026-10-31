@@ -42,28 +42,60 @@ func (r *release) asset() string {
 	return ""
 }
 
-// watchUpdates looks for a new release at start and then twice a day.
-func (a *App) watchUpdates(ctx context.Context) {
-	if Version == "dev" {
-		return // own builds have nothing to compare
+const updateEvery = 12 * time.Hour
+
+// updateCheck is the last look for a release, kept across restarts.
+type updateCheck struct {
+	Version string    `json:"version"` // of this program then; another one looks again
+	At      time.Time `json:"at"`
+	Release *release  `json:"release,omitempty"`
+}
+
+// watchUpdates looks for a release newer than version, the running one,
+// twice a day, counted across restarts, never while Rocket League runs.
+func (a *App) watchUpdates(ctx context.Context, version string) {
+	var last updateCheck
+	json.Unmarshal([]byte(a.store.Meta("update_check")), &last)
+	if last.Version != version || last.At.After(a.now()) {
+		last = updateCheck{}
+	}
+	if last.Release != nil {
+		a.foundRelease(last.Release, version)
 	}
 	for {
-		rel, err := a.latestRelease(ctx)
-		if err != nil {
-			log.Printf("Suche nach Updates: %v", err)
-		} else if strings.TrimPrefix(rel.Tag, "v") != Version {
-			// ponytail: any other tag counts as newer, releases/latest never goes back
-			if a.release.Swap(rel) == nil {
-				log.Printf("Update auf %s verfügbar", rel.Tag)
-			}
-			a.events.publish("state")
-		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(12 * time.Hour):
+		case <-time.After(last.At.Add(updateEvery).Sub(a.now())):
+		}
+		if !a.waitGame(ctx) {
+			return
+		}
+		rel, err := a.latestRelease(ctx)
+		last = updateCheck{Version: version, At: a.now(), Release: last.Release}
+		if err != nil {
+			log.Printf("Suche nach Updates: %v", err)
+		} else {
+			last.Release = rel
+			a.foundRelease(rel, version)
+		}
+		data, _ := json.Marshal(last)
+		if err := a.store.SetMeta("update_check", string(data)); err != nil {
+			log.Printf("Update-Suche speichern: %v", err)
 		}
 	}
+}
+
+// foundRelease offers a release unless it is the running version.
+func (a *App) foundRelease(rel *release, version string) {
+	if strings.TrimPrefix(rel.Tag, "v") == version {
+		return
+	}
+	// ponytail: any other tag counts as newer, releases/latest never goes back
+	if a.release.Swap(rel) == nil {
+		log.Printf("Update auf %s verfügbar", rel.Tag)
+	}
+	a.events.publish("state")
 }
 
 func (a *App) latestRelease(ctx context.Context) (*release, error) {

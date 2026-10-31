@@ -18,6 +18,7 @@ var (
 	gdi32  = windows.NewLazySystemDLL("gdi32.dll")
 	shcore = windows.NewLazySystemDLL("shcore.dll")
 	dwmapi = windows.NewLazySystemDLL("dwmapi.dll")
+	msimg  = windows.NewLazySystemDLL("msimg32.dll")
 
 	procRegisterClassEx       = user32.NewProc("RegisterClassExW")
 	procCreateWindowEx        = user32.NewProc("CreateWindowExW")
@@ -42,8 +43,10 @@ var (
 	procMonitorFromWindow     = user32.NewProc("MonitorFromWindow")
 	procGetMonitorInfo        = user32.NewProc("GetMonitorInfoW")
 	procTrackMouseEvent       = user32.NewProc("TrackMouseEvent")
+	procSetWindowRgn          = user32.NewProc("SetWindowRgn")
 	procCreateCompatibleDC    = gdi32.NewProc("CreateCompatibleDC")
 	procCreateCompatibleBmp   = gdi32.NewProc("CreateCompatibleBitmap")
+	procCreateDIBSection      = gdi32.NewProc("CreateDIBSection")
 	procSelectObject          = gdi32.NewProc("SelectObject")
 	procDeleteObject          = gdi32.NewProc("DeleteObject")
 	procDeleteDC              = gdi32.NewProc("DeleteDC")
@@ -54,6 +57,13 @@ var (
 	procCreateSolidBrush      = gdi32.NewProc("CreateSolidBrush")
 	procCreatePen             = gdi32.NewProc("CreatePen")
 	procRoundRect             = gdi32.NewProc("RoundRect")
+	procGetStockObject        = gdi32.NewProc("GetStockObject")
+	procGetTextMetrics        = gdi32.NewProc("GetTextMetricsW")
+	procSetTextCharExtra      = gdi32.NewProc("SetTextCharacterExtra")
+	procCreateRectRgn         = gdi32.NewProc("CreateRectRgn")
+	procCreateRoundRectRgn    = gdi32.NewProc("CreateRoundRectRgn")
+	procCombineRgn            = gdi32.NewProc("CombineRgn")
+	procAlphaBlend            = msimg.NewProc("AlphaBlend")
 	procGetDpiForMonitor      = shcore.NewProc("GetDpiForMonitor")
 	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
 )
@@ -91,9 +101,15 @@ const (
 	srcCopy         = 0x00CC0020
 	monitorPrimary  = 1
 	hwndTopmost     = ^uintptr(0) // -1
+	psSolid         = 0
+	psDash          = 1
+	nullBrush       = 5
+	rgnOr           = 2
+	blendAlpha      = 0x01ff0000 // AC_SRC_OVER with the source's own alpha (AC_SRC_ALPHA)
 
 	timerQuick = 1
 	timerToast = 2
+	timerLobby = 3
 
 	toastLife = 8 * time.Second
 	maxToasts = 3
@@ -153,6 +169,15 @@ type trackMouse struct {
 	hoverTime uint32
 }
 
+type bitmapInfoHeader struct {
+	size                   uint32
+	width, height          int32
+	planes, bitCount       uint16
+	compression, sizeImage uint32
+	xPels, yPels           int32
+	clrUsed, clrImportant  uint32
+}
+
 // colors as 0x00BBGGRR
 const (
 	colBg      = 0x00281f1b
@@ -164,22 +189,26 @@ const (
 	colChipHot = 0x00544a40
 	colTrack   = 0x00383028
 	colOnAccnt = 0x00100d0b
-	colOrange  = 0x003d8aff
 )
 
-// teamColors are blue and orange.
-var teamColors = [2]uint32{colAccent, colOrange}
-
-// tierColor is the color of a rank: bronze to Supersonic Legend.
-func tierColor(tier int) uint32 {
-	switch {
-	case tier <= 0:
-		return colMuted
-	case tier >= 22:
-		return 0x00ffffff
-	}
-	return [7]uint32{0x004a7ac0, 0x00cfc2b9, 0x0031b9e8, 0x00d0d45f, 0x00ffa05a, 0x00ff7cb0, 0x006e5aff}[(tier-1)/3]
-}
+// The lobby has the colors of the interface (Nocturne).
+const (
+	lobBg      = 0x00261816 // #161826
+	lobSurface = 0x00322523 // #232532
+	lobText    = 0x00ede9e9 // #e9e9ed
+	lobKey     = 0x00f5e7e4 // #e4e7f5, neutral 200
+	lobNote    = 0x00cab6b2 // #b2b6ca, neutral 400
+	lobMuted   = 0x00ab9793 // #9397ab, neutral 500
+	lobEdge    = 0x006c5d59 // #595d6c, neutral 700
+	lobTrack   = 0x00312b29 // #292b31, neutral 900
+	lobAccent  = 0x00d98491 // #9184d9
+	lobMe      = 0x00fee5e7 // #e7e5fe, accent 200
+	lobBlue    = 0x00fdced2 // #d2cefd, accent 300
+	lobTagBg   = 0x006a3a42 // #423a6a, accent 800
+	lobMeBg    = 0x0041272b // #2b2741, accent 900
+	lobTag     = 0x00fff4f5 // #f5f4ff, accent 100
+	lobOrange  = 0x0069a8e8 // #e8a869, oklch(0.78 0.11 65)
+)
 
 // hit is a clickable area of a popup.
 type hit struct {
@@ -201,6 +230,7 @@ type window struct {
 	dpi     uint32
 	w, h    int32
 	hits    []hit
+	parts   []rect // rounded parts the window is cut to, nil for all of it
 	close   func() // closes this popup
 }
 
@@ -215,7 +245,8 @@ type Manager struct {
 	lobby   *window
 	toasts  []*window
 	pending []Toast
-	fonts   map[[3]int32]uintptr
+	fonts   map[[2]int32]uintptr // by height and weight
+	logos   map[[2]int32]uintptr // bitmaps by tier and size, 0 if missing
 }
 
 var (
@@ -226,7 +257,7 @@ var (
 // New starts the popup thread. There is only one manager per process.
 func New() *Manager {
 	mgrOnce.Do(func() {
-		mgr = &Manager{reqs: make(chan func(), 32), wins: map[uintptr]*window{}, fonts: map[[3]int32]uintptr{}}
+		mgr = &Manager{reqs: make(chan func(), 32), wins: map[uintptr]*window{}, fonts: map[[2]int32]uintptr{}, logos: map[[2]int32]uintptr{}}
 		ready := make(chan struct{})
 		go mgr.loop(ready)
 		<-ready
@@ -296,20 +327,22 @@ func (m *Manager) HideQuickSort() {
 	})
 }
 
-// ShowLobby shows the lobby at the right, vertically centered, or updates
-// the one shown.
+// ShowLobby shows the lobby at the top in the middle, like the scoreboard
+// of the game, or updates the one shown. Its countdown starts again.
 func (m *Manager) ShowLobby(l Lobby) {
 	m.do(func() {
 		if w := m.lobby; w != nil && w.hwnd != 0 {
-			w.lobby = &l
+			w.lobby, w.shown = &l, time.Now()
 			w.w, w.h = m.measure(w)
+			shape(w)
 			m.place()
 			procInvalidateRect.Call(w.hwnd, 0, 0)
 			return
 		}
-		w := &window{lobby: &l, hot: -1}
+		w := &window{lobby: &l, shown: time.Now(), hot: -1}
 		m.lobby = w
 		m.open(w)
+		procSetTimer.Call(w.hwnd, timerLobby, 40, 0)
 	})
 }
 
@@ -370,14 +403,33 @@ func (m *Manager) open(w *window) {
 	}
 	w.hwnd = hwnd
 	m.wins[hwnd] = w
-	corners := uint32(2) // DWMWCP_ROUND, Windows 11 only
-	procDwmSetWindowAttribute.Call(hwnd, 33, uintptr(unsafe.Pointer(&corners)), 4)
+	if w.parts == nil {
+		corners := uint32(2) // DWMWCP_ROUND, Windows 11 only
+		procDwmSetWindowAttribute.Call(hwnd, 33, uintptr(unsafe.Pointer(&corners)), 4)
+	}
+	shape(w)
 	m.place()
 	procShowWindow.Call(hwnd, swShowNoActive)
 }
 
-// place positions the prompt at the top right, the lobby at the right in
-// the middle and stacks notifications from the bottom right upwards.
+// shape cuts the window to its parts, the game shows between them.
+func shape(w *window) {
+	if w.parts == nil || w.hwnd == 0 {
+		return
+	}
+	d := uintptr(scale(16, w.dpi)) // corner diameter, as the parts are drawn
+	rgn, _, _ := procCreateRectRgn.Call(0, 0, 0, 0)
+	for _, p := range w.parts {
+		// one more at the right and bottom: the region leaves out what RoundRect draws there
+		part, _, _ := procCreateRoundRectRgn.Call(uintptr(p.left), uintptr(p.top), uintptr(p.right+1), uintptr(p.bottom+1), d, d)
+		procCombineRgn.Call(rgn, rgn, part, rgnOr)
+		procDeleteObject.Call(part)
+	}
+	procSetWindowRgn.Call(w.hwnd, rgn, 1) // the window owns rgn now
+}
+
+// place positions the prompt at the top right, the lobby at the top in the
+// middle and stacks notifications from the bottom right upwards.
 func (m *Manager) place() {
 	work, dpi := workArea()
 	margin := scale(16, dpi)
@@ -386,7 +438,7 @@ func (m *Manager) place() {
 			uintptr(w.w), uintptr(w.h), swpNoActivate|swpShowWindow)
 	}
 	if w := m.lobby; w != nil && w.hwnd != 0 {
-		procSetWindowPos.Call(w.hwnd, hwndTopmost, uintptr(work.right-w.w-margin), uintptr(work.top+(work.bottom-work.top-w.h)/2),
+		procSetWindowPos.Call(w.hwnd, hwndTopmost, uintptr(work.left+(work.right-work.left-w.w)/2), uintptr(work.top+margin),
 			uintptr(w.w), uintptr(w.h), swpNoActivate|swpShowWindow)
 	}
 	y := work.bottom - margin
@@ -457,7 +509,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			m.closeWindow(w)
 			return 0
 		}
-		if wParam == timerQuick {
+		if wParam == timerQuick || wParam == timerLobby {
 			procInvalidateRect.Call(hwnd, 0, 0)
 		}
 		return 0
@@ -527,12 +579,17 @@ func (m *Manager) font(pt10 int32, bold bool, dpi uint32) uintptr {
 	if bold {
 		weight = 600
 	}
-	key := [3]int32{pt10, weight, int32(dpi)}
+	return m.fontPx(pt10*int32(dpi)/720, weight) // pt10 is tenths of a point
+}
+
+// fontPx returns a cached Segoe UI font whose letters are px pixels high,
+// as font-size in CSS.
+func (m *Manager) fontPx(px, weight int32) uintptr {
+	key := [2]int32{px, weight}
 	if f, ok := m.fonts[key]; ok {
 		return f
 	}
-	height := -(pt10 * int32(dpi) / 720) // pt10 is tenths of a point
-	f, _, _ := procCreateFont.Call(uintptr(height), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0,
+	f, _, _ := procCreateFont.Call(uintptr(-px), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0,
 		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Segoe UI"))))
 	m.fonts[key] = f
 	return f
@@ -540,12 +597,25 @@ func (m *Manager) font(pt10 int32, bold bool, dpi uint32) uintptr {
 
 // text draws s in r and returns the rectangle it needs (with dtCalcRect).
 func (m *Manager) text(hdc uintptr, s string, r rect, pt10 int32, bold bool, color uint32, flags uintptr, dpi uint32) rect {
-	procSelectObject.Call(hdc, m.font(pt10, bold, dpi))
+	return drawText(hdc, s, r, m.font(pt10, bold, dpi), color, flags)
+}
+
+func drawText(hdc uintptr, s string, r rect, font uintptr, color uint32, flags uintptr) rect {
+	procSelectObject.Call(hdc, font)
 	procSetTextColor.Call(hdc, uintptr(color))
 	procSetBkMode.Call(hdc, 1) // transparent
 	p, _ := windows.UTF16PtrFromString(s)
 	procDrawText.Call(hdc, uintptr(unsafe.Pointer(p)), ^uintptr(0), uintptr(unsafe.Pointer(&r)), flags|dtNoPrefix)
 	return r
+}
+
+// ascent returns how far the letters of font reach above the baseline,
+// and the height of a line.
+func ascent(hdc, font uintptr) (above, line int32) {
+	var tm [16]int32 // TEXTMETRICW, tmHeight and tmAscent first
+	procSelectObject.Call(hdc, font)
+	procGetTextMetrics.Call(hdc, uintptr(unsafe.Pointer(&tm)))
+	return tm[1], tm[0]
 }
 
 func fill(hdc uintptr, r rect, color uint32) {
@@ -566,13 +636,55 @@ func roundRect(hdc uintptr, r rect, radius int32, fillColor, border uint32) {
 	procDeleteObject.Call(pen)
 }
 
+// outline draws only the edge of a rounded rectangle, solid or dashed.
+func outline(hdc uintptr, r rect, radius int32, style uintptr, color uint32) {
+	brush, _, _ := procGetStockObject.Call(nullBrush)
+	pen, _, _ := procCreatePen.Call(style, 1, uintptr(color))
+	ob, _, _ := procSelectObject.Call(hdc, brush)
+	op, _, _ := procSelectObject.Call(hdc, pen)
+	procSetBkMode.Call(hdc, 1) // gaps of a dashed pen stay clear
+	procRoundRect.Call(hdc, uintptr(r.left), uintptr(r.top), uintptr(r.right), uintptr(r.bottom), uintptr(radius), uintptr(radius))
+	procSelectObject.Call(hdc, ob)
+	procSelectObject.Call(hdc, op)
+	procDeleteObject.Call(pen)
+}
+
+// drawLogo draws the logo of a tier into the square r; false if there is
+// none.
+func (m *Manager) drawLogo(hdc uintptr, tier int, r rect) bool {
+	size := r.right - r.left
+	key := [2]int32{int32(tier), size}
+	bmp, ok := m.logos[key]
+	if !ok {
+		if px, err := rankLogo(tier, int(size)); err == nil {
+			hdr := bitmapInfoHeader{width: size, height: -size, planes: 1, bitCount: 32} // top-down
+			hdr.size = uint32(unsafe.Sizeof(hdr))
+			var bits unsafe.Pointer
+			bmp, _, _ = procCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&hdr)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+			if bmp != 0 {
+				copy(unsafe.Slice((*byte)(bits), len(px)), px)
+			}
+		}
+		m.logos[key] = bmp
+	}
+	if bmp == 0 {
+		return false
+	}
+	mem, _, _ := procCreateCompatibleDC.Call(hdc)
+	old, _, _ := procSelectObject.Call(mem, bmp)
+	procAlphaBlend.Call(hdc, uintptr(r.left), uintptr(r.top), uintptr(size), uintptr(size), mem, 0, 0, uintptr(size), uintptr(size), blendAlpha)
+	procSelectObject.Call(mem, old)
+	procDeleteDC.Call(mem)
+	return true
+}
+
 // measure computes the popup size by laying it out on a screen DC.
 func (m *Manager) measure(w *window) (int32, int32) {
 	hdc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, hdc)
 	width := scale(360, w.dpi)
 	if w.lobby != nil {
-		width = scale(440, w.dpi)
+		width = scale(lobbyW, w.dpi)
 	}
 	w.w, w.h = width, 2000
 	h := m.layout(hdc, w, time.Now(), false)
@@ -587,6 +699,9 @@ func (m *Manager) paint(hdc uintptr, w *window, now time.Time) {
 // layout draws the popup if draw is set and returns its height either
 // way, recording the clickable areas.
 func (m *Manager) layout(hdc uintptr, w *window, now time.Time, draw bool) int32 {
+	if w.lobby != nil {
+		return m.layoutLobby(hdc, w, now, draw)
+	}
 	dpi := w.dpi
 	s := func(v int32) int32 { return scale(v, dpi) }
 	pad := s(14)
@@ -654,71 +769,6 @@ func (m *Manager) layout(hdc uintptr, w *window, now time.Time, draw bool) int32
 		y += s(18)
 	}
 
-	if l := w.lobby; l != nil {
-		put(strings.ToUpper(l.Title), rect{inner.left, y, inner.right, y + s(16)}, 85, true, colMuted, dtSingleLine)
-		if l.Smurf {
-			const label = "SMURF MARKIERT"
-			lr := m.text(hdc, label, rect{0, 0, s(300), s(20)}, 80, true, colOnAccnt, dtSingleLine|dtCalcRect, dpi)
-			chip := rect{inner.right - (lr.right - lr.left) - s(16), y - s(2), inner.right, y + s(16)}
-			if draw {
-				roundRect(hdc, chip, s(6), colOrange, colOrange)
-			}
-			put(label, chip, 80, true, colOnAccnt, dtSingleLine|dtCenter|dtVCenter)
-		}
-		y += s(24)
-		nameW, cellW := s(128), s(74)
-		x0 := inner.left + nameW
-		cell := func(i int, top, bottom int32) rect {
-			return rect{x0 + int32(i)*cellW, top, x0 + int32(i+1)*cellW - s(6), bottom}
-		}
-		if len(l.Teams[0])+len(l.Teams[1]) > 0 {
-			for i, head := range []string{"1s", "2s", "3s"} {
-				put(head, cell(i, y, y+s(16)), 85, true, colMuted, dtSingleLine|dtRight)
-			}
-			put("Siege", rect{x0 + 3*cellW, y, inner.right, y + s(16)}, 85, true, colMuted, dtSingleLine|dtRight)
-			y += s(18)
-		}
-		for team, rows := range l.Teams {
-			if len(rows) == 0 {
-				continue
-			}
-			put([]string{"BLAU", "ORANGE"}[team], rect{inner.left, y, inner.right, y + s(16)}, 80, true, teamColors[team], dtSingleLine)
-			y += s(16)
-			for _, p := range rows {
-				bottom := y + s(22)
-				if draw && p.Me {
-					roundRect(hdc, rect{inner.left - s(6), y, inner.right + s(6), bottom}, s(6), colChip, colChip)
-				}
-				put(p.Name, rect{inner.left, y, x0 - s(8), bottom}, 100, p.Me, colText, dtSingleLine|dtVCenter|dtEndEllipsis)
-				for i, r := range p.Ranks {
-					c := cell(i, y, bottom)
-					switch {
-					case r.Label == "":
-						put("…", c, 95, false, colMuted, dtSingleLine|dtVCenter|dtRight)
-					case r.MMR == "":
-						put(r.Label, c, 95, false, colMuted, dtSingleLine|dtVCenter|dtRight)
-					default:
-						put(r.MMR, c, 90, false, colMuted, dtSingleLine|dtVCenter|dtRight)
-						put(r.Label, rect{c.left, y, c.right - s(34), bottom}, 95, true, tierColor(r.Tier), dtSingleLine|dtVCenter|dtRight)
-					}
-				}
-				wins := p.Wins
-				if wins == "" {
-					wins = "–"
-				}
-				put(wins, rect{x0 + 3*cellW, y, inner.right, bottom}, 90, false, colMuted, dtSingleLine|dtVCenter|dtRight)
-				y = bottom
-			}
-			y += s(8)
-		}
-		for _, line := range []string{l.Note, l.Hint} {
-			if line != "" {
-				put(line, rect{inner.left, y, inner.right, y + s(18)}, 85, false, colMuted, dtSingleLine|dtEndEllipsis)
-				y += s(18)
-			}
-		}
-	}
-
 	if t := w.toast; t != nil {
 		closeR := rect{inner.right - s(20), y - s(4), inner.right + s(4), y + s(20)}
 		hits = append(hits, hit{r: closeR, run: w.close})
@@ -781,4 +831,206 @@ func (m *Manager) layout(hdc uintptr, w *window, now time.Time, draw bool) int32
 	}
 	w.hits = hits
 	return y + pad
+}
+
+// The scoreboard of the lobby, in pixels at 96 dpi.
+const (
+	lobbyW    = 800
+	lobbyMid  = 120 // the middle column with the title and the averages
+	lobbyCard = 90  // height of a player
+	lobbyLogo = 34
+)
+
+// layoutLobby lays out the lobby like the scoreboard of the game: blue at
+// the left, orange at the right, every player with name, rank logo, MMR in
+// the playlist and wins, the averages in the middle and a countdown at the
+// bottom. A strip under it shows the smurf, the state of the lookup and the
+// hotkeys; the window is cut to the two.
+func (m *Manager) layoutLobby(hdc uintptr, w *window, now time.Time, draw bool) int32 {
+	l, dpi := w.lobby, w.dpi
+	s := func(v int32) int32 { return scale(v, dpi) }
+	font := func(px, weight int32) uintptr { return m.fontPx(s(px), weight) }
+	put := func(str string, r rect, f uintptr, color uint32, flags uintptr) {
+		if draw {
+			drawText(hdc, str, r, f, color, flags|dtSingleLine)
+		}
+	}
+	width := func(str string, f uintptr) int32 {
+		r := drawText(hdc, str, rect{0, 0, w.w, s(40)}, f, 0, dtSingleLine|dtCalcRect)
+		return r.right - r.left
+	}
+	small, smallBold := font(11, 400), font(11, 600)
+
+	mid := s(lobbyMid)
+	half := (w.w - mid) / 2
+	rowH := s(10 + lobbyCard + 10)
+	board := rect{0, 0, w.w, rowH + s(3) + 1} // the edge takes the last pixel
+	if draw {
+		fill(hdc, board, lobBg)
+		fill(hdc, rect{half, 0, half + mid, rowH}, lobSurface)
+		fill(hdc, rect{0, 1, half, 1 + s(2)}, lobBlue)
+		fill(hdc, rect{half + mid, 1, w.w, 1 + s(2)}, lobOrange)
+		fill(hdc, rect{0, rowH, w.w, rowH + s(3)}, lobTrack)
+		from, to := lobbyBar(l.Busy, l.Seconds, now.Sub(w.shown))
+		fill(hdc, rect{int32(from * float64(w.w)), rowH, int32(to * float64(w.w)), rowH + s(3)}, lobAccent)
+	}
+
+	// the middle: the title, under it the averages on one baseline and
+	// which playlist they are
+	cur := min(max(l.Rank, 1), 3) - 1
+	big := font(15, 400)
+	bigUp, bigLine := ascent(hdc, big)
+	smallUp, _ := ascent(hdc, small)
+	top := (rowH - s(17+3+23)) / 2
+	if draw {
+		procSetTextCharExtra.Call(hdc, uintptr(s(1)))
+		put(strings.ToUpper(l.Title), rect{half, top, half + mid, top + s(17)}, small, lobMuted, dtCenter|dtVCenter)
+		procSetTextCharExtra.Call(hdc, 0)
+	}
+	avg := l.Avg
+	for i := range avg {
+		if avg[i] == "" {
+			avg[i] = "–"
+		}
+	}
+	of := "Ø " + strconv.Itoa(cur+1) + "s"
+	wb, wa, wo := width(avg[0], big), width(of, small), width(avg[1], big)
+	base := top + s(17+3) + (s(23)-bigLine)/2 + bigUp
+	x := half + (mid-wb-wa-wo-s(16))/2
+	put(avg[0], rect{x, base - bigUp, x + wb, base + bigLine}, big, lobBlue, 0)
+	x += wb + s(8)
+	put(of, rect{x, base - smallUp, x + wa, base + bigLine}, small, lobMuted, 0)
+	x += wa + s(8)
+	put(avg[1], rect{x, base - bigUp, x + wo, base + bigLine}, big, lobOrange, 0)
+
+	// the players, side by side in their half
+	name, nameMe, mmr := font(12, 400), font(12, 600), font(17, 600)
+	logo := s(lobbyLogo)
+	for team, rows := range l.Teams {
+		slots := int32(max(l.Size, len(rows), 1))
+		left, right, align := s(12), half-s(10), uintptr(0)
+		if team == 1 {
+			left, right, align = half+mid+s(10), w.w-s(12), dtRight
+		}
+		cw := (right - left - s(4)*(slots-1)) / slots
+		for i, p := range rows {
+			x := left + int32(i)*(cw+s(4))
+			card := rect{x, s(10), x + cw, s(10 + lobbyCard)}
+			in := rect{card.left + s(8), card.top + s(6), card.right - s(8), card.bottom - s(6)}
+			f, color := name, uint32(lobText)
+			if p.Me {
+				f, color = nameMe, lobMe
+				if draw {
+					roundRect(hdc, card, s(8), lobMeBg, lobMeBg)
+				}
+			}
+			put(p.Name, rect{in.left, in.top, in.right, in.top + s(19)}, f, color, dtVCenter|dtEndEllipsis|align)
+
+			// logo and MMR, mirrored for orange; "…" until the lookup answers
+			r := p.Ranks[cur]
+			text := r.MMR
+			row := rect{in.left, in.top + s(23), in.right, in.top + s(23) + logo}
+			if r.Label == "" {
+				text = "…"
+			} else {
+				box := rect{row.left, row.top, row.left + logo, row.bottom}
+				if team == 1 {
+					box = rect{row.right - logo, row.top, row.right, row.bottom}
+				}
+				if draw && (r.MMR == "" || !m.drawLogo(hdc, r.Tier, box)) {
+					outline(hdc, box, s(8), psDash, lobEdge)
+					put(r.Label, box, smallBold, lobMuted, dtCenter|dtVCenter)
+				}
+				if team == 0 {
+					row.left = box.right + s(8)
+				} else {
+					row.right = box.left - s(8)
+				}
+			}
+			put(text, row, mmr, lobText, dtVCenter|align)
+			if p.Wins != "" && r.Label != "" {
+				put(p.Wins+" Siege", rect{in.left, in.top + s(61), in.right, in.top + s(78)}, small, lobMuted, dtVCenter|dtEndEllipsis|align)
+			}
+		}
+	}
+
+	// the strip: smurf, state of the lookup, hotkeys
+	const (
+		footText = iota
+		footTag
+		footKey
+	)
+	type piece struct {
+		text   string
+		font   uintptr
+		color  uint32
+		kind   int
+		before int32 // space before it
+		w      int32
+	}
+	var foot []piece
+	gap, note := int32(0), -1
+	add := func(text string, f uintptr, color uint32, kind int) {
+		if len(foot) > 0 {
+			gap += s(6)
+		}
+		pad := [3]int32{0, 2 * s(7), 2*s(5) + 2}[kind]
+		foot = append(foot, piece{text, f, color, kind, gap, width(text, f) + pad})
+		gap = 0
+	}
+	if l.Smurf {
+		add("Smurf markiert", small, lobTag, footTag)
+		gap = s(6)
+	}
+	if l.Note != "" {
+		note = len(foot)
+		add(l.Note, small, lobNote, footText)
+		gap = s(6)
+	}
+	for i, h := range l.Hints {
+		if i > 0 {
+			gap = s(6)
+		}
+		add(h.Key, smallBold, lobKey, footKey)
+		add(h.Action, small, lobNote, footText)
+	}
+	w.parts = []rect{board}
+	if draw {
+		outline(hdc, board, s(16), psSolid, lobEdge)
+	}
+	if len(foot) == 0 {
+		return board.bottom
+	}
+	padX, padY, line := s(8), s(3), s(19)
+	total := 2 * padX
+	for _, p := range foot {
+		total += p.before + p.w
+	}
+	if over := total - w.w; over > 0 && note >= 0 {
+		foot[note].w = max(foot[note].w-over, 0) // a long error gets an ellipsis
+		total = w.w
+	}
+	pill := rect{(w.w - total) / 2, board.bottom + s(6), (w.w + total) / 2, board.bottom + s(6) + line + 2*padY}
+	w.parts = append(w.parts, pill)
+	if draw {
+		roundRect(hdc, pill, s(16), lobBg, lobEdge)
+		x := pill.left + padX
+		for _, p := range foot {
+			x += p.before
+			r := rect{x, pill.top + padY, x + p.w, pill.top + padY + line}
+			switch p.kind {
+			case footTag:
+				roundRect(hdc, r, s(12), lobTagBg, lobTagBg)
+				put(p.text, r, p.font, p.color, dtCenter|dtVCenter)
+			case footKey:
+				chip := rect{r.left, r.top + (line-s(17))/2, r.right, r.top + (line-s(17))/2 + s(17)}
+				roundRect(hdc, chip, s(6), lobBg, lobEdge)
+				put(p.text, chip, p.font, p.color, dtCenter|dtVCenter)
+			default:
+				put(p.text, r, p.font, p.color, dtVCenter|dtEndEllipsis)
+			}
+			x = r.right
+		}
+	}
+	return pill.bottom
 }

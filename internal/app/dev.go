@@ -22,6 +22,7 @@ type MMR interface {
 	Login(ctx context.Context, code string) (name string, err error)
 	Logout()
 	SignedIn() bool
+	GameStarted() // look for a new game version before the next connection
 	Connect(ctx context.Context) error
 	Close()
 	Lookup(ctx context.Context, ids []string) (map[string]mmr.Player, error)
@@ -73,6 +74,9 @@ func (a *App) SetDevMode(on bool, password string) error {
 // lobbyChanged follows settings that switch the lobby lookup on or off.
 func (a *App) lobbyChanged(old, cur config.Config) {
 	a.bindHotkeys(old, cur)
+	if cur.LobbyRank != old.LobbyRank {
+		a.lobby.resetRank() // a new default counts at once
+	}
 	if !cur.LobbyOn() && old.LobbyOn() {
 		a.lobby.hide()
 		go a.mmr.Close()
@@ -111,8 +115,8 @@ func (a *App) epicResult(err error) {
 	}
 }
 
-// connectEpic opens the connection when Rocket League starts, so the first
-// lookup does not wait for the sign-in.
+// connectEpic opens the connection when Rocket League starts, and again
+// after a match if it dropped, so a lookup does not wait for the sign-in.
 func (a *App) connectEpic() {
 	if !a.config().LobbyOn() || !a.mmr.SignedIn() {
 		return

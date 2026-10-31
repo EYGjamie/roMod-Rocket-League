@@ -803,7 +803,11 @@ func (a *App) apiSync(w http.ResponseWriter, r *http.Request) {
 		Full bool `json:"full"`
 	}
 	json.NewDecoder(r.Body).Decode(&in)
-	a.requestSync(in.Full)
+	kind := syncNew
+	if in.Full {
+		kind = syncComplete
+	}
+	a.requestSync(kind)
 	ok(w)
 }
 
@@ -1348,7 +1352,7 @@ func (a *App) apiSetIdentities(w http.ResponseWriter, r *http.Request) {
 	a.dedupe()
 	a.events.publish("state")
 	a.events.publish("replays")
-	a.requestSync(false) // games with the new accounts
+	a.requestSync(syncNew) // games with the new accounts
 	ok(w)
 }
 

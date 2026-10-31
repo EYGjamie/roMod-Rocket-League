@@ -49,9 +49,11 @@ type Config struct {
 	MMR                bool   `json:"mmr"`           // look up the lobby at match start
 	LobbyPopup         bool   `json:"lobby_popup"`   // show it at match start
 	LobbySeconds       int    `json:"lobby_seconds"` // until the popup closes again
+	LobbyRank          int    `json:"lobby_rank"`    // playlist whose rank the popup shows at start: 1–3, 0 the match's
 	LobbyHotkey        string `json:"lobby_hotkey"`
 	SmurfHotkey        string `json:"smurf_hotkey"`
-	EpicToken          string `json:"-"` // refresh token of the Epic account; written encrypted below
+	RankHotkey         string `json:"rank_hotkey"` // switches the rank shown until the program ends
+	EpicToken          string `json:"-"`           // refresh token of the Epic account; written encrypted below
 	EpicTokenProtected string `json:"epic_token_protected,omitempty"`
 	EpicName           string `json:"epic_name,omitempty"`
 
@@ -82,6 +84,7 @@ func Default() Config {
 		LobbySeconds:     15,
 		LobbyHotkey:      "Ctrl+Alt+L",
 		SmurfHotkey:      "Ctrl+Alt+S",
+		RankHotkey:       "Ctrl+Alt+M",
 	}
 }
 
@@ -167,12 +170,14 @@ func (c Config) Validate() error {
 		return fmt.Errorf("quick_sort_seconds %d ungültig (3 bis 60)", c.QuickSortSeconds)
 	case c.LobbySeconds < 3 || c.LobbySeconds > 120:
 		return fmt.Errorf("lobby_seconds %d ungültig (3 bis 120)", c.LobbySeconds)
+	case c.LobbyRank < 0 || c.LobbyRank > 3:
+		return fmt.Errorf("lobby_rank %d ungültig (0 bis 3)", c.LobbyRank)
 	}
 	keys := []string{c.GUIHotkey, c.PauseHotkey}
 	keys = append(keys, c.QuickSortHotkeys[:]...)
 	names := hotkeyNames
 	if c.LobbyOn() { // the others are not registered, so they block nothing
-		keys = append(keys, c.LobbyHotkey, c.SmurfHotkey)
+		keys = append(keys, c.LobbyHotkey, c.SmurfHotkey, c.RankHotkey)
 	} else {
 		names = names[:len(keys)]
 	}
@@ -194,7 +199,7 @@ func (c Config) Validate() error {
 }
 
 // hotkeyNames name the hotkeys in the order Validate checks them.
-var hotkeyNames = []string{"gui_hotkey", "pause_hotkey", "quick_sort_hotkeys[0]", "quick_sort_hotkeys[1]", "quick_sort_hotkeys[2]", "quick_sort_hotkeys[3]", "lobby_hotkey", "smurf_hotkey"}
+var hotkeyNames = []string{"gui_hotkey", "pause_hotkey", "quick_sort_hotkeys[0]", "quick_sort_hotkeys[1]", "quick_sort_hotkeys[2]", "quick_sort_hotkeys[3]", "lobby_hotkey", "smurf_hotkey", "rank_hotkey"}
 
 // Save writes c to path, atomically and with the tokens encrypted.
 func Save(path string, c Config) error {

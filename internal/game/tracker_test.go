@@ -172,6 +172,20 @@ func TestHooksAndInMatch(t *testing.T) {
 	}
 }
 
+func TestResetWhenTheGameClosesMidMatch(t *testing.T) {
+	tt := newTestTracker(true)
+	tt.send("RoundStarted", "G1")
+	waitFor(t, func() bool { return tt.calls.Load() == 1 }) // waits for a mark result
+	tt.Reset()
+	if tt.InMatch() {
+		t.Error("InMatch() = true after the connection broke")
+	}
+	tt.send("RoundStarted", "G1") // the game reconnected to the same match
+	if !tt.InMatch() || tt.reminds != 0 {
+		t.Errorf("after reconnecting: InMatch() = %v, %d reminders", tt.InMatch(), tt.reminds)
+	}
+}
+
 func TestPausedNeitherMarksNorReminds(t *testing.T) {
 	tt := newTestTracker(true)
 	tt.SetPaused(true)

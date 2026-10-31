@@ -33,6 +33,24 @@ jobs:
 
       - run: go test ./...
 
+      # Windows draws the popups with GDI, so only this runner can show how
+      # they look: TestPaint saves toast, quick sort and lobby as PNGs, also
+      # when a test failed.
+      - name: Render popups
+        if: runner.os == 'Windows' && !cancelled()
+        env:
+          POPUP_PNG_DIR: ${{ github.workspace }}/popups
+        run: |
+          New-Item -ItemType Directory -Force $env:POPUP_PNG_DIR | Out-Null
+          go test -run TestPaint -count=1 ./internal/popup/
+
+      - name: Upload popups
+        if: runner.os == 'Windows' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: popups-windows # not romod-*, the release leaves it out
+          path: popups/*.png
+
       # A tag v1.2.3 builds version 1.2.3; the in-app updater looks for the
       # files by name: romod-<GOOS>-<GOARCH>[.exe].
       - name: Build

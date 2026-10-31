@@ -8,21 +8,11 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 	"unsafe"
 )
-
-var procCreateDIBSection = gdi32.NewProc("CreateDIBSection")
-
-type bitmapInfoHeader struct {
-	size                   uint32
-	width, height          int32
-	planes, bitCount       uint16
-	compression, sizeImage uint32
-	xPels, yPels           int32
-	clrUsed, clrImportant  uint32
-}
 
 // render paints a popup into a bitmap without showing a window.
 func render(t *testing.T, m *Manager, w *window, at time.Time) *image.RGBA {
@@ -92,10 +82,63 @@ func TestPaint(t *testing.T) {
 		}
 		save(t, img, "toast-"+string(rune('0'+dpi/48))+".png")
 	}
+	for _, dpi := range []uint32{96, 144} {
+		lb := &window{dpi: dpi, shown: start, lobby: editorLobby(false)}
+		img := render(t, m, lb, start.Add(5*time.Second))
+		if lb.w != scale(lobbyW, dpi) || len(lb.parts) != 2 || lb.parts[1].top <= lb.parts[0].bottom || distinctColors(img) < 200 {
+			t.Errorf("lobby at %d dpi: %dx%d, parts %v, %d colors: want the board with logos and the strip below", dpi, lb.w, lb.h, lb.parts, distinctColors(img))
+		}
+		save(t, img, "lobby-"+string(rune('0'+dpi/48))+".png")
+
+		busy := &window{dpi: dpi, shown: start, lobby: editorLobby(true)}
+		img = render(t, m, busy, start.Add(600*time.Millisecond))
+		if busy.h != lb.h || distinctColors(img) >= distinctColors(render(t, m, lb, start)) {
+			t.Errorf("loading lobby at %d dpi: height %d, want %d and no logos yet", dpi, busy.h, lb.h)
+		}
+		save(t, img, "lobby-loading-"+string(rune('0'+dpi/48))+".png")
+	}
+	bare := &window{dpi: 96, shown: start, lobby: &Lobby{Title: "Lobby"}}
+	render(t, m, bare, start)
+	if len(bare.parts) != 1 || bare.h != bare.parts[0].bottom {
+		t.Errorf("lobby without note and hotkeys: parts %v, height %d, want the board alone", bare.parts, bare.h)
+	}
+
 	long := &window{dpi: 96, shown: start, toast: &Toast{Title: "Upload fehlgeschlagen",
 		Body: "4D2F9A1C8B7E4E21A6F05C3B9D7E1A42.replay: HTTP 500 internal error, ballchasing hat die Datei nicht angenommen und meldet einen Serverfehler"}}
 	short := &window{dpi: 96, shown: start, toast: &Toast{Title: "Kurz", Body: "Eine Zeile"}}
 	if render(t, m, long, start).Bounds().Dy() <= render(t, m, short, start).Bounds().Dy() {
 		t.Error("a long body must make the toast taller")
 	}
+}
+
+// editorLobby is the example of the design: a 3v3 with a smurf marked,
+// the user in blue; busy while the ranks load.
+func editorLobby(busy bool) *Lobby {
+	player := func(name string, me bool, wins string, tiers ...int) LobbyPlayer {
+		p := LobbyPlayer{Name: name, Me: me, Wins: wins}
+		for i := range p.Ranks {
+			if !busy {
+				p.Ranks[i] = Rank{Label: "R" + strconv.Itoa(tiers[2*i]), MMR: strconv.Itoa(tiers[2*i+1]), Tier: tiers[2*i]}
+			}
+		}
+		if busy {
+			p.Wins = ""
+		}
+		return p
+	}
+	l := &Lobby{Title: "Lobby · 3v3", Size: 3, Rank: 3, Smurf: true, Busy: busy, Seconds: 15, Avg: [2]string{"1137", "1210"},
+		Hints: []Hint{{"Strg+Alt+S", "Smurf"}, {"Strg+Alt+M", "1s/2s/3s"}, {"Strg+Alt+L", "schließen"}},
+		Teams: [2][]LobbyPlayer{{
+			player("EYGjamie", true, "1.842", 15, 1012, 16, 1098, 17, 1187),
+			player("Flinkwerk", false, "3.210", 16, 1065, 17, 1170, 16, 1121),
+			player("noxa.rl", false, "954", 14, 921, 15, 1035, 16, 1102),
+		}, {
+			player("0verdrive", false, "212", 19, 1412, 19, 1489, 17, 1203),
+			player("Kurzpass", false, "4.517", 16, 1077, 17, 1205, 18, 1268),
+			player("Malte_04", false, "2.088", 15, 1009, 16, 1110, 17, 1158),
+		}}}
+	if busy {
+		l.Avg, l.Note = [2]string{"–", "–"}, "Ränge werden geladen …"
+	}
+	return l
 }
