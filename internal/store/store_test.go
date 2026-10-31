@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -216,5 +217,44 @@ func TestLobbies(t *testing.T) {
 	}
 	if list, _ := s.Lobbies(day.Add(-time.Minute)); len(list) != 1 {
 		t.Errorf("Lobbies(since) = %d lobbies, want 1", len(list))
+	}
+}
+
+func TestMigrateLobbyMMR(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// lobbies as the lookup stored them before: Mu instead of MMR
+	s.PutLobby(Lobby{GUID: "G1", Size: 2, Winner: 0, Players: []LobbyPlayer{
+		{ID: "Steam|1|0", Name: "Jamie", Me: true, Looked: true, Wins: 1200, Ranks: [3]*Rank{nil, {Tier: 16, Div: 2, MMR: 50.5, Played: 40}, {MMR: 25}}},
+		{ID: "Epic|x|0", Name: "Rook", Team: 1, Wins: -1},
+		{ID: "Epic|y|0", Name: "Kiwi", Team: 1, Wins: 3, Ranks: [3]*Rank{{Tier: 22, MMR: 80}, nil, nil}},
+	}})
+	s.PutLobby(Lobby{GUID: "G0", Size: 1})
+	if _, err := s.db.Exec("PRAGMA user_version = 4"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	got, _, err := s.Lobby("G1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []LobbyPlayer{
+		{ID: "Steam|1|0", Name: "Jamie", Me: true, Looked: true, Wins: 1200, Ranks: [3]*Rank{nil, {Tier: 16, Div: 2, MMR: 1110, Played: 40}, {MMR: 600}}},
+		{ID: "Epic|x|0", Name: "Rook", Team: 1, Wins: -1},
+		{ID: "Epic|y|0", Name: "Kiwi", Team: 1, Wins: 3, Ranks: [3]*Rank{{Tier: 22, MMR: 1700}, nil, nil}},
+	}
+	if !reflect.DeepEqual(got.Players, want) || got.Winner != 0 {
+		t.Errorf("after migration = %+v", got)
+	}
+	if l, ok, _ := s.Lobby("G0"); !ok || len(l.Players) != 0 {
+		t.Errorf("lobby without players after migration = %+v, %v", l, ok)
 	}
 }

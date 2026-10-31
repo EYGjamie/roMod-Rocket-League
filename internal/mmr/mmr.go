@@ -27,10 +27,10 @@ var ErrSignedOut = errors.New("nicht bei Epic angemeldet")
 
 // Skill is a player's rank in one playlist.
 type Skill struct {
-	Tier   int // 0 unranked, 1 Bronze I … 22 Supersonic Legend
-	Div    int // 0–3
-	MMR    float64
-	Played int // matches this season
+	Tier   int     // 0 unranked, 1 Bronze I … 22 Supersonic Legend
+	Div    int     // 0–3
+	MMR    float64 // as the game shows it
+	Played int     // matches this season
 }
 
 // Player is what the lookup found about one player.
@@ -253,7 +253,7 @@ func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string
 		found := Player{Wins: -1}
 		for _, s := range p.Skills {
 			if i := slices.Index(Playlists[:], rlapi.PlaylistID(s.Playlist)); i >= 0 {
-				found.Ranks[i] = &Skill{Tier: s.Tier, Div: s.Division, MMR: s.MMR, Played: s.MatchesPlayed}
+				found.Ranks[i] = &Skill{Tier: s.Tier, Div: s.Division, MMR: shownMMR(s.MMR), Played: s.MatchesPlayed}
 			}
 		}
 		out[id] = found
@@ -272,6 +272,11 @@ func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string
 	}
 	return out, nil
 }
+
+// shownMMR turns the skill value PsyNet calls MMR, really the Mu of its
+// TrueSkill rating, into the MMR the game and rank sites show: a new
+// player's Mu of 25 is 600.
+func shownMMR(mu float64) float64 { return mu*20 + 100 }
 
 // key compares player IDs without case and the trailing |0.
 func key(id string) string {

@@ -141,6 +141,14 @@ CREATE TABLE lobbies (
 	players TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX lobbies_started ON lobbies(started);
+`, `
+-- the lookup stored PsyNet's Mu instead of the MMR the game shows
+UPDATE lobbies SET players = (
+	SELECT json_group_array(json(CASE WHEN json_type(p.value, '$.ranks') = 'array' THEN json_set(p.value, '$.ranks', json((
+		SELECT json_group_array(json(CASE WHEN r.type = 'object' THEN json_set(r.value, '$.mmr', r.value ->> '$.mmr' * 20 + 100) ELSE 'null' END) ORDER BY r.key)
+		FROM json_each(p.value, '$.ranks') r))) ELSE p.value END) ORDER BY p.key)
+	FROM json_each(lobbies.players) p
+) WHERE json_type(players) = 'array';
 `}
 
 func (s *Store) migrate() error {

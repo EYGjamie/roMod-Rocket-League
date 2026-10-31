@@ -26,6 +26,15 @@ func TestKeyIgnoresCaseAndSuffix(t *testing.T) {
 	}
 }
 
+func TestShownMMR(t *testing.T) {
+	// 25 is a new player, 81.8645 the best 1s player in rlapi's REQUESTS.md
+	for mu, want := range map[float64]float64{25: 600, 81.8645: 1737.29} {
+		if got := shownMMR(mu); got < want-0.01 || got > want+0.01 {
+			t.Errorf("shownMMR(%v) = %v, want %v", mu, got, want)
+		}
+	}
+}
+
 // psynetSource is the start of rlapi's psynet.go as on GitHub.
 const psynetSource = `package rlapi
 
