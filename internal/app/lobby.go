@@ -61,6 +61,13 @@ type LobbyRank struct {
 // later get a lookup of their own that adds them to the popup.
 var lobbySettle = 200 * time.Millisecond
 
+// winsRetry is how long the tracker waits before it asks again for wins
+// whose question failed, at most winsTries times per match. Every lookup
+// in between asks for them too.
+var winsRetry = 5 * time.Second
+
+const winsTries = 3
+
 type lobbyTracker struct {
 	a *App
 
@@ -71,9 +78,12 @@ type lobbyTracker struct {
 	seq     int // of the popup, so an old timer does not close a new one
 	hideT   *time.Timer
 	lookT   *time.Timer
-	busy    bool   // a lookup runs
-	err     string // of the last lookup for cur
-	rank    int    // playlist picked with the hotkey since the start, 0 none
+	busy    bool            // a lookup runs
+	err     string          // of the last lookup for cur
+	rank    int             // playlist picked with the hotkey since the start, 0 none
+	again   map[string]bool // players of cur whose wins failed
+	retryT  *time.Timer
+	retries int // of retryT for cur
 }
 
 // validPlayer reports whether a Stats API ID belongs to a real account, not
@@ -166,7 +176,10 @@ func (l *lobbyTracker) start(guid string) {
 	if l.lookT != nil {
 		l.lookT.Stop()
 	}
-	l.shown, l.err = false, ""
+	if l.retryT != nil {
+		l.retryT.Stop()
+	}
+	l.shown, l.err, l.again, l.retries = false, "", map[string]bool{}, 0
 	if old, ok, _ := l.a.store.Lobby(guid); ok {
 		l.cur, l.shown = &old, true
 		return
@@ -184,7 +197,8 @@ func (l *lobbyTracker) save() {
 }
 
 // lookup asks for ranks and wins of the players of lob not yet looked up,
-// then shows the popup once per match.
+// and again of those whose wins failed, then shows the popup once per
+// match.
 func (l *lobbyTracker) lookup(lob *store.Lobby) {
 	signedIn := l.a.mmr.SignedIn() // never asked under l.mu: the Stats API waits for it
 	l.mu.Lock()
@@ -194,7 +208,7 @@ func (l *lobbyTracker) lookup(lob *store.Lobby) {
 	}
 	var ids []string
 	for _, p := range lob.Players {
-		if !p.Looked {
+		if !p.Looked || (lob == l.cur && l.again[p.ID]) {
 			ids = append(ids, p.ID)
 		}
 	}
@@ -226,8 +240,18 @@ func (l *lobbyTracker) lookup(lob *store.Lobby) {
 				continue
 			}
 			p.Looked = true
-			if f, ok := found[p.ID]; ok {
-				p.Wins = f.Wins
+			f, ok := found[p.ID]
+			if lob == l.cur {
+				if ok && f.WinsFailed {
+					l.again[p.ID] = true
+				} else {
+					delete(l.again, p.ID)
+				}
+			}
+			if ok {
+				if f.Wins >= 0 {
+					p.Wins = f.Wins
+				}
 				for j, s := range f.Ranks {
 					if s != nil {
 						p.Ranks[j] = &store.Rank{Tier: s.Tier, Div: s.Div, MMR: s.MMR, Played: s.Played}
@@ -250,6 +274,14 @@ func (l *lobbyTracker) lookup(lob *store.Lobby) {
 	l.save()
 	if err == nil && slices.ContainsFunc(lob.Players, func(p store.LobbyPlayer) bool { return !p.Looked }) {
 		go l.lookup(lob) // joined during the lookup
+	}
+	if err == nil && len(l.again) > 0 && l.retries < winsTries {
+		l.retries++
+		log.Printf("MMR-Abfrage: Siege für %d Spieler fehlen, neuer Versuch in %s", len(l.again), winsRetry)
+		if l.retryT != nil {
+			l.retryT.Stop()
+		}
+		l.retryT = time.AfterFunc(winsRetry, func() { l.lookup(lob) })
 	}
 	switch {
 	case !l.shown && l.a.config().LobbyPopup:
@@ -376,7 +408,7 @@ func (l *lobbyTracker) hide() {
 }
 
 // toggle opens or closes the popup, for the hotkey. Opening it retries a
-// lookup that failed.
+// lookup, or the wins of one, that failed.
 func (l *lobbyTracker) toggle() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -385,7 +417,7 @@ func (l *lobbyTracker) toggle() {
 		return
 	}
 	l.show()
-	if lob := l.cur; lob != nil && !l.busy && slices.ContainsFunc(lob.Players, func(p store.LobbyPlayer) bool { return !p.Looked }) {
+	if lob := l.cur; lob != nil && !l.busy && (len(l.again) > 0 || slices.ContainsFunc(lob.Players, func(p store.LobbyPlayer) bool { return !p.Looked })) {
 		go l.lookup(lob)
 	}
 }

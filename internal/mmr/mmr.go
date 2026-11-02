@@ -10,6 +10,7 @@ import (
 	"log"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,8 +36,9 @@ type Skill struct {
 
 // Player is what the lookup found about one player.
 type Player struct {
-	Ranks [3]*Skill // 1s, 2s, 3s; nil if the player has none
-	Wins  int       // -1 if not known
+	Ranks      [3]*Skill // 1s, 2s, 3s; nil if the player has none
+	Wins       int       // -1 if not known
+	WinsFailed bool      // the question for the wins failed, a later lookup may find them
 }
 
 // Options configure New.
@@ -223,7 +225,15 @@ func (c *Client) Lookup(ctx context.Context, ids []string) (map[string]Player, e
 	}
 }
 
-func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string]Player, error) {
+// psyNet is the part of PsyNet the lookup asks, a *rlapi.PsyNetRPC; tests
+// use a fake.
+type psyNet interface {
+	GetPlayersSkills(ctx context.Context, ids []rlapi.PlayerID) ([]rlapi.PlayerWithSkills, error)
+	GetStatLeaderboardRankForUsers(ctx context.Context, stat string, ids []rlapi.PlayerID) (*rlapi.GetStatLeaderboardRankForUsersResponse, error)
+	GetStatLeaderboardValueForUser(ctx context.Context, stat string, id rlapi.PlayerID) (*rlapi.GetStatLeaderboardValueForUserResponse, error)
+}
+
+func lookup(ctx context.Context, rpc psyNet, ids []string) (map[string]Player, error) {
 	pids := make([]rlapi.PlayerID, len(ids))
 	byKey := make(map[string]string, len(ids))
 	for i, id := range ids {
@@ -231,16 +241,10 @@ func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string
 		byKey[key(id)] = id
 	}
 	// both questions go out at once, so the answer takes one round trip
-	type winsResult struct {
-		res *rlapi.GetStatLeaderboardRankForUsersResponse
-		err error
-	}
 	winsCh := make(chan winsResult, 1)
-	go func() {
-		res, err := rpc.GetStatLeaderboardRankForUsers(ctx, "Wins", pids)
-		winsCh <- winsResult{res, err}
-	}()
+	go func() { winsCh <- askWins(ctx, rpc, ids, byKey) }()
 	skills, err := rpc.GetPlayersSkills(ctx, pids)
+	wins := <-winsCh // no question outlasts the lookup
 	if err != nil {
 		return nil, fmt.Errorf("Ränge: %w", err)
 	}
@@ -258,19 +262,99 @@ func lookup(ctx context.Context, rpc *rlapi.PsyNetRPC, ids []string) (map[string
 		}
 		out[id] = found
 	}
-	wins := <-winsCh
-	if wins.err != nil {
-		log.Printf("MMR-Abfrage: Siege nicht abrufbar: %v", wins.err) // the ranks are still worth showing
-		return out, nil
+	for id, n := range wins.found {
+		p, ok := out[id]
+		if !ok {
+			p = Player{Wins: -1}
+		}
+		p.Wins = n
+		out[id] = p
 	}
-	for _, w := range wins.res.Players {
-		if id, ok := byKey[key(string(w.PlayerID))]; ok {
-			p := out[id]
-			p.Wins = int(w.Value)
+	for _, id := range wins.failed { // the ranks are still worth showing
+		if p, ok := out[id]; ok {
+			p.WinsFailed = true
 			out[id] = p
 		}
 	}
 	return out, nil
+}
+
+type winsResult struct {
+	found  map[string]int // by the ID as asked
+	failed []string       // the question failed for these
+}
+
+// askWins asks for the all-time wins of the players: all of them in one
+// question, then one by one those its answer lacks, as that question fails
+// as a whole or leaves players out at times. Players the servers have no
+// wins for are in neither list.
+func askWins(ctx context.Context, rpc psyNet, ids []string, byKey map[string]string) winsResult {
+	out := winsResult{found: map[string]int{}}
+	pids := make([]rlapi.PlayerID, len(ids))
+	for i, id := range ids {
+		pids[i] = rlapi.PlayerID(id)
+	}
+	res, err := rpc.GetStatLeaderboardRankForUsers(ctx, "Wins", pids)
+	if err != nil {
+		log.Printf("MMR-Abfrage: Siege nicht abrufbar, frage einzeln: %v", err)
+	} else {
+		for _, w := range res.Players {
+			if id, ok := byKey[key(string(w.PlayerID))]; ok {
+				out.found[id] = int(w.Value)
+			} else {
+				log.Printf("MMR-Abfrage: Siege für eine nicht gefragte ID %s", w.PlayerID)
+			}
+		}
+	}
+
+	var missing []string
+	for _, id := range ids {
+		if _, ok := out.found[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var none []string
+	for _, id := range missing {
+		wg.Go(func() {
+			res, err := rpc.GetStatLeaderboardValueForUser(ctx, "Wins", rlapi.PlayerID(id))
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				log.Printf("MMR-Abfrage: Siege für %s nicht abrufbar: %v", platform(id), err)
+				out.failed = append(out.failed, id)
+				return
+			}
+			// rlapi reads bHasStat, the servers send bHasValue as its
+			// REQUESTS.md shows, so only the value counts
+			if n, err := strconv.ParseFloat(strings.TrimSpace(res.Value), 64); err == nil {
+				out.found[id] = int(n)
+			} else {
+				none = append(none, id)
+			}
+		})
+	}
+	wg.Wait()
+
+	if len(out.found) < len(ids) {
+		var lack []string
+		for _, id := range out.failed {
+			lack = append(lack, platform(id)+" (Abfrage fehlgeschlagen)")
+		}
+		for _, id := range none {
+			lack = append(lack, platform(id)+" (keine bei Psyonix)")
+		}
+		slices.Sort(lack)
+		log.Printf("MMR-Abfrage: Siege für %d von %d Spielern, ohne: %s", len(out.found), len(ids), strings.Join(lack, ", "))
+	}
+	return out
+}
+
+// platform is the first part of a player ID, e.g. Steam.
+func platform(id string) string {
+	p, _, _ := strings.Cut(id, "|")
+	return p
 }
 
 // shownMMR turns the skill value PsyNet calls MMR, really the Mu of its

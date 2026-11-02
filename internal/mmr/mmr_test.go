@@ -3,8 +3,12 @@ package mmr
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/dank/rlapi"
 )
 
 func TestParseCode(t *testing.T) {
@@ -127,5 +131,80 @@ func TestVersionLookOncePerGameStart(t *testing.T) {
 	connect(true)
 	if calls != 1 {
 		t.Errorf("%d looks after one game start, want 1", calls)
+	}
+}
+
+// fakePsyNet answers like PsyNet: wins for the players in batch, and one
+// by one the values in single, an error for the others.
+type fakePsyNet struct {
+	batch    map[rlapi.PlayerID]float64
+	batchErr error
+	single   map[rlapi.PlayerID]string
+
+	mu    sync.Mutex
+	asked []rlapi.PlayerID // one by one
+}
+
+func (f *fakePsyNet) GetPlayersSkills(ctx context.Context, ids []rlapi.PlayerID) ([]rlapi.PlayerWithSkills, error) {
+	var out []rlapi.PlayerWithSkills
+	for _, id := range ids {
+		out = append(out, rlapi.PlayerWithSkills{PlayerID: id, Skills: []rlapi.Skill{{Playlist: 11, Tier: 17, MMR: 50}}})
+	}
+	return out, nil
+}
+
+func (f *fakePsyNet) GetStatLeaderboardRankForUsers(ctx context.Context, stat string, ids []rlapi.PlayerID) (*rlapi.GetStatLeaderboardRankForUsersResponse, error) {
+	if f.batchErr != nil {
+		return nil, f.batchErr
+	}
+	res := &rlapi.GetStatLeaderboardRankForUsersResponse{LeaderboardID: stat}
+	for id, n := range f.batch {
+		res.Players = append(res.Players, rlapi.StatLeaderboardRankPlayer{PlayerID: id, Value: n})
+	}
+	return res, nil
+}
+
+func (f *fakePsyNet) GetStatLeaderboardValueForUser(ctx context.Context, stat string, id rlapi.PlayerID) (*rlapi.GetStatLeaderboardValueForUserResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, id)
+	v, ok := f.single[id]
+	if !ok {
+		return nil, errors.New("ServiceUnavailable")
+	}
+	return &rlapi.GetStatLeaderboardValueForUserResponse{LeaderboardID: stat, Value: v}, nil
+}
+
+func TestLookupAsksForMissingWinsOneByOne(t *testing.T) {
+	ids := []string{"Steam|7656|0", "Epic|b|0", "PS4|c|0", "Switch|d|0"}
+	rpc := &fakePsyNet{
+		batch:  map[rlapi.PlayerID]float64{"steam|7656": 1234}, // spelt otherwise, still the player asked
+		single: map[rlapi.PlayerID]string{"Epic|b|0": "42", "Switch|d|0": ""},
+	}
+	got, err := lookup(context.Background(), rpc, ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Player{
+		"Steam|7656|0": {Wins: 1234},
+		"Epic|b|0":     {Wins: 42},
+		"PS4|c|0":      {Wins: -1, WinsFailed: true},
+		"Switch|d|0":   {Wins: -1},
+	}
+	for id, w := range want {
+		p := got[id]
+		if p.Wins != w.Wins || p.WinsFailed != w.WinsFailed || p.Ranks[1] == nil || p.Ranks[1].MMR != 1100 {
+			t.Errorf("%s = %+v, want wins %d, failed %v and the 2s rank", id, p, w.Wins, w.WinsFailed)
+		}
+	}
+	slices.Sort(rpc.asked)
+	if !slices.Equal(rpc.asked, []rlapi.PlayerID{"Epic|b|0", "PS4|c|0", "Switch|d|0"}) {
+		t.Errorf("asked one by one: %v, want those the answer lacks", rpc.asked)
+	}
+
+	rpc = &fakePsyNet{batchErr: errors.New("RateLimited"), single: map[rlapi.PlayerID]string{"Steam|7656|0": "7", "Epic|b|0": "8", "PS4|c|0": "9", "Switch|d|0": "10"}}
+	got, err = lookup(context.Background(), rpc, ids)
+	if err != nil || len(rpc.asked) != 4 || got["Switch|d|0"].Wins != 10 || got["Steam|7656|0"].Wins != 7 {
+		t.Errorf("after a failed question: %+v, %v, asked %v", got, err, rpc.asked)
 	}
 }

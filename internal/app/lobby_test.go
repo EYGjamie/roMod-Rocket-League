@@ -17,6 +17,7 @@ type fakeMMR struct {
 	signedIn bool
 	found    map[string]mmr.Player
 	err      error
+	winsFail int // lookups left whose wins fail
 	looked   [][]string
 	connects int
 	started  int
@@ -45,6 +46,15 @@ func (f *fakeMMR) Lookup(ctx context.Context, ids []string) (map[string]mmr.Play
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.looked = append(f.looked, slices.Clone(ids))
+	if f.winsFail > 0 {
+		f.winsFail--
+		out := map[string]mmr.Player{}
+		for id, p := range f.found {
+			p.Wins, p.WinsFailed = -1, true
+			out[id] = p
+		}
+		return out, f.err
+	}
 	return f.found, f.err
 }
 
@@ -155,6 +165,35 @@ func TestLobbyLateJoinerAndToggle(t *testing.T) {
 	l, _, _ := ta.store.Lobby("G1")
 	if len(l.Players) != 3 || !l.Players[1].Left {
 		t.Errorf("players = %+v, want Rook marked as left", l.Players)
+	}
+}
+
+func TestLobbyAsksAgainForFailedWins(t *testing.T) {
+	ta, me := lobbyApp(t)
+	old := winsRetry
+	winsRetry = 10 * time.Millisecond
+	t.Cleanup(func() { winsRetry = old })
+	looked := func() [][]string { ta.mmr.mu.Lock(); defer ta.mmr.mu.Unlock(); return slices.Clone(ta.mmr.looked) }
+
+	ta.mmr.winsFail = 2
+	ta.updateState("G1", game.Player{Name: "Jamie", PrimaryID: me}, game.Player{Name: "Rook", PrimaryID: "Epic|o1|0", Team: 1})
+	ta.waitFor("wins after two failures", func() bool {
+		l, _, _ := ta.store.Lobby("G1")
+		return len(l.Players) == 2 && l.Players[0].Wins == 1234 && l.Players[1].Wins == 5000
+	})
+	if got := looked(); len(got) != 3 || len(got[1]) != 2 || len(got[2]) != 2 {
+		t.Errorf("lookups = %v, want the first and two more with both players", got)
+	}
+	if p, _, _ := ta.desk.lastLobby(); len(p.Teams[0]) != 1 || p.Teams[0][0].Wins != "1.234" {
+		t.Errorf("popup = %+v, want Jamie's wins", p.Teams)
+	}
+
+	ta.mmr.winsFail = 100
+	ta.updateState("G2", game.Player{Name: "Jamie", PrimaryID: me}, game.Player{Name: "Sly", PrimaryID: "PS4|o2|0", Team: 1})
+	ta.waitFor("all tries", func() bool { return len(looked()) == 3+1+winsTries })
+	time.Sleep(10 * winsRetry)
+	if got := looked(); len(got) != 3+1+winsTries || !slices.Equal(got[len(got)-1], []string{me, "PS4|o2|0"}) {
+		t.Errorf("lookups = %v, want %d tries more with both players, then none", got, winsTries)
 	}
 }
 
