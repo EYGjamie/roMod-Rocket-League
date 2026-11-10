@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	fyne.io/systray v1.12.2
-	github.com/dank/rlapi v0.1.28
+	github.com/dank/rlapi v0.1.29
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/jezek/xgb v1.3.1
